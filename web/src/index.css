@@ -1,0 +1,129 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply bg-surface-900 text-gray-100;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  * {
+    @apply box-border;
+  }
+
+  ::selection {
+    @apply bg-brand-500/30 text-white;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-800;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-500 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-brand-600;
+  }
+}
+
+@layer components {
+  /* ── Buttons ─────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-surface-900 disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-500 text-white hover:bg-brand-400 focus:ring-brand-500 shadow-lg shadow-brand-500/25;
+  }
+
+  .btn-secondary {
+    @apply btn bg-surface-600 text-gray-200 hover:bg-surface-500 focus:ring-surface-500 border border-surface-500;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-500 focus:ring-red-500 shadow-lg shadow-red-600/20;
+  }
+
+  .btn-ghost {
+    @apply btn text-gray-400 hover:text-white hover:bg-surface-700;
+  }
+
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+
+  .btn-lg {
+    @apply px-7 py-3.5 text-base;
+  }
+
+  /* ── Cards ───────────────────────────────────────────────────── */
+  .card {
+    @apply bg-surface-800 rounded-2xl border border-surface-600/50 shadow-xl;
+  }
+
+  .card-hover {
+    @apply card transition-all duration-200 hover:border-brand-500/30 hover:shadow-brand-500/10 cursor-pointer;
+  }
+
+  /* ── Inputs ──────────────────────────────────────────────────── */
+  .input {
+    @apply w-full bg-surface-700 border border-surface-500 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all duration-200;
+  }
+
+  .label {
+    @apply block text-sm font-medium text-gray-300 mb-1.5;
+  }
+
+  /* ── Badges ──────────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold;
+  }
+
+  .badge-green  { @apply badge bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/30; }
+  .badge-red    { @apply badge bg-red-500/15 text-red-400 ring-1 ring-red-500/30; }
+  .badge-yellow { @apply badge bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/30; }
+  .badge-blue   { @apply badge bg-brand-500/15 text-brand-300 ring-1 ring-brand-500/30; }
+  .badge-gray   { @apply badge bg-gray-500/15 text-gray-400 ring-1 ring-gray-500/30; }
+
+  /* ── Page layout ─────────────────────────────────────────────── */
+  .page {
+    @apply min-h-screen bg-surface-900 animate-fade-in;
+  }
+
+  .container-app {
+    @apply max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8;
+  }
+
+  /* ── Section headings ────────────────────────────────────────── */
+  .page-title {
+    @apply text-2xl font-bold text-white tracking-tight;
+  }
+
+  .section-title {
+    @apply text-lg font-semibold text-gray-200;
+  }
+
+  /* ── Step indicator ──────────────────────────────────────────── */
+  .step-dot {
+    @apply w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-all duration-300;
+  }
+
+  .step-dot-active   { @apply step-dot bg-brand-500 border-brand-500 text-white; }
+  .step-dot-done     { @apply step-dot bg-brand-500/20 border-brand-500 text-brand-400; }
+  .step-dot-inactive { @apply step-dot bg-surface-700 border-surface-500 text-gray-500; }
+
+  /* ── Dividers ────────────────────────────────────────────────── */
+  .divider { @apply border-t border-surface-600/60; }
+
+  /* ── Status pill for matches ─────────────────────────────────── */
+  .status-upcoming  { @apply badge-blue; }
+  .status-live      { @apply badge-green; }
+  .status-completed { @apply badge-gray; }
+  .status-abandoned { @apply badge-red; }
+}
