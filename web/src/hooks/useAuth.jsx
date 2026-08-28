@@ -1,38 +1,18 @@
-import { createContext, useContext, useState, useCallback } from 'react';
-import { authApi } from '../services/api';
+import { createContext, useContext, useCallback } from 'react';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('mandir11_token'));
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const isAdmin = true;
 
-  const isAdmin = Boolean(token);
-
-  const login = useCallback(async (username, password) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data } = await authApi.login(username, password);
-      localStorage.setItem('mandir11_token', data.access_token);
-      setToken(data.access_token);
-      return true;
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Login failed');
-      return false;
-    } finally {
-      setLoading(false);
-    }
+  const login = useCallback(async () => {
+    return true;
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem('mandir11_token');
-    setToken(null);
-  }, []);
+  const logout = useCallback(() => {}, []);
 
   return (
-    <AuthContext.Provider value={{ token, isAdmin, login, logout, error, loading }}>
+    <AuthContext.Provider value={{ token: 'local_token', isAdmin, login, logout, error: null, loading: false }}>
       {children}
     </AuthContext.Provider>
   );
@@ -40,6 +20,8 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+  if (!ctx) {
+    return { token: 'local_token', isAdmin: true, login: async () => true, logout: () => {}, error: null, loading: false };
+  }
   return ctx;
 }

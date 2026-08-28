@@ -1,0 +1,12 @@
+{
+  "overall_ranking": {
+    "win_weight": 3,
+    "loss_weight": 0,
+    "participation_weight": 0.1
+  },
+  "streak_reset_on": "loss",
+  "cricket_stats": {
+    "qualifying_innings_for_average": 1,
+    "qualifying_overs_for_economy": 2
+  }
+}

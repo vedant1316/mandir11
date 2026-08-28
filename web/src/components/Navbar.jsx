@@ -1,5 +1,4 @@
-import { Link, NavLink, useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
+import { Link, NavLink } from 'react-router-dom';
 
 const navItems = [
   { to: '/', label: 'Dashboard', id: 'nav-dashboard' },
@@ -8,14 +7,6 @@ const navItems = [
 ];
 
 export default function Navbar() {
-  const { isAdmin, logout } = useAuth();
-  const navigate = useNavigate();
-
-  const handleLogout = () => {
-    logout();
-    navigate('/');
-  };
-
   return (
     <nav className="sticky top-0 z-50 bg-surface-800/80 backdrop-blur-md border-b border-surface-600/50">
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -51,20 +42,11 @@ export default function Navbar() {
             ))}
           </div>
 
-          {/* Auth */}
+          {/* Action button */}
           <div className="flex items-center gap-2">
-            {isAdmin ? (
-              <>
-                <span className="hidden sm:block badge badge-green text-xs">Admin</span>
-                <button id="nav-logout" onClick={handleLogout} className="btn-ghost btn btn-sm">
-                  Logout
-                </button>
-              </>
-            ) : (
-              <Link id="nav-login" to="/login" className="btn-primary btn btn-sm">
-                Admin Login
-              </Link>
-            )}
+            <Link to="/matches/new" id="nav-quick-match" className="btn-primary btn btn-sm">
+              ⚡ Quick Match
+            </Link>
           </div>
         </div>
 

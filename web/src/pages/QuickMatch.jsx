@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { matchesApi, playersApi } from '../services/api';
 import PlayerBadge from '../components/PlayerBadge';
-import { LoadingSpinner } from '../components/ui';
 
 const STEPS = [
   { id: 1, label: 'Sport' },
@@ -130,7 +129,7 @@ export default function QuickMatch() {
       setMatchData(startRes.data);
       setStep(5);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to create match.');
+      setError(err.response?.data?.detail || err.message || 'Failed to create match.');
     } finally {
       setLoading(false);
     }

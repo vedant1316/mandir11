@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { matchesApi, playersApi } from '../services/api';
-import { useAuth } from '../hooks/useAuth';
 import { LoadingSpinner, ErrorState, ConfirmDialog } from '../components/ui';
 
 const SPORT_EMOJI = { cricket: '🏏', volleyball: '🏐', badminton: '🏸' };
@@ -22,7 +21,6 @@ const END_REASON_LABEL = {
 export default function MatchDetail() {
   const { matchId } = useParams();
   const navigate = useNavigate();
-  const { isAdmin } = useAuth();
 
   const [match, setMatch] = useState(null);
   const [allPlayers, setAllPlayers] = useState([]);
@@ -85,7 +83,7 @@ export default function MatchDetail() {
       await matchesApi.setPlayerOfMatch(matchId, pomPlayer);
       await load();
     } catch (err) {
-      setPomError(err.response?.data?.detail || 'Failed to set Player of Match.');
+      setPomError(err.response?.data?.detail || err.message || 'Failed to set Player of Match.');
     } finally {
       setPomSubmitting(false);
     }
@@ -98,7 +96,7 @@ export default function MatchDetail() {
       await matchesApi.end(matchId, 'other');
       await load();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to abandon match.');
+      setError(err.response?.data?.detail || err.message || 'Failed to abandon match.');
     } finally {
       setAbandoning(false);
     }
@@ -182,65 +180,63 @@ export default function MatchDetail() {
           />
         </div>
 
-        {/* Admin actions */}
-        {isAdmin && (
-          <div className="space-y-4">
-            {/* Enter result / continue */}
-            {match.status === 'live' && (
-              <Link
-                to={`/matches/${matchId}/result`}
-                id="btn-enter-result"
-                className="btn-primary btn w-full block text-center"
-              >
-                Enter Result
-              </Link>
-            )}
+        {/* Match actions */}
+        <div className="space-y-4">
+          {/* Enter result / continue */}
+          {match.status === 'live' && (
+            <Link
+              to={`/matches/${matchId}/result`}
+              id="btn-enter-result"
+              className="btn-primary btn w-full block text-center"
+            >
+              Enter Result
+            </Link>
+          )}
 
-            {/* Abandon */}
-            {(match.status === 'live' || match.status === 'upcoming') && (
+          {/* Abandon */}
+          {(match.status === 'live' || match.status === 'upcoming') && (
+            <button
+              id="btn-abandon"
+              onClick={() => setAbandonConfirm(true)}
+              disabled={abandoning}
+              className="btn-danger btn w-full"
+            >
+              {abandoning ? 'Abandoning…' : 'Abandon Match'}
+            </button>
+          )}
+
+          {/* Player of Match selection */}
+          {match.status === 'completed' && !match.player_of_match_id && (
+            <div className="card p-5">
+              <h3 className="section-title mb-4">⭐ Select Player of the Match</h3>
+              <select
+                id="select-pom"
+                className="input mb-3"
+                value={pomPlayer}
+                onChange={(e) => setPomPlayer(e.target.value)}
+              >
+                <option value="">— Select player —</option>
+                {allMatchPlayers.map((tp) => {
+                  const p = allPlayers.find((pl) => pl.id === tp.player_id);
+                  return p ? (
+                    <option key={tp.player_id} value={tp.player_id}>
+                      {p.name} (Team {tp.team})
+                    </option>
+                  ) : null;
+                })}
+              </select>
+              {pomError && <p className="text-red-400 text-xs mb-2">{pomError}</p>}
               <button
-                id="btn-abandon"
-                onClick={() => setAbandonConfirm(true)}
-                disabled={abandoning}
-                className="btn-danger btn w-full"
+                id="btn-set-pom"
+                onClick={handleSetPom}
+                disabled={!pomPlayer || pomSubmitting}
+                className="btn-primary btn w-full"
               >
-                {abandoning ? 'Abandoning…' : 'Abandon Match'}
+                {pomSubmitting ? 'Setting…' : 'Set Player of Match'}
               </button>
-            )}
-
-            {/* Player of Match selection */}
-            {match.status === 'completed' && !match.player_of_match_id && (
-              <div className="card p-5">
-                <h3 className="section-title mb-4">⭐ Select Player of the Match</h3>
-                <select
-                  id="select-pom"
-                  className="input mb-3"
-                  value={pomPlayer}
-                  onChange={(e) => setPomPlayer(e.target.value)}
-                >
-                  <option value="">— Select player —</option>
-                  {allMatchPlayers.map((tp) => {
-                    const p = allPlayers.find((pl) => pl.id === tp.player_id);
-                    return p ? (
-                      <option key={tp.player_id} value={tp.player_id}>
-                        {p.name} (Team {tp.team})
-                      </option>
-                    ) : null;
-                  })}
-                </select>
-                {pomError && <p className="text-red-400 text-xs mb-2">{pomError}</p>}
-                <button
-                  id="btn-set-pom"
-                  onClick={handleSetPom}
-                  disabled={!pomPlayer || pomSubmitting}
-                  className="btn-primary btn w-full"
-                >
-                  {pomSubmitting ? 'Setting…' : 'Set Player of Match'}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
 
       {abandonConfirm && (

@@ -3,12 +3,8 @@ import { Link } from 'react-router-dom';
 import { matchesApi, playersApi } from '../services/api';
 import MatchCard from '../components/MatchCard';
 import { LoadingSpinner, EmptyState, ErrorState } from '../components/ui';
-import { useAuth } from '../hooks/useAuth';
-
-const SPORT_EMOJI = { cricket: '🏏', volleyball: '🏐', badminton: '🏸' };
 
 export default function Dashboard() {
-  const { isAdmin } = useAuth();
   const [liveMatches, setLiveMatches] = useState([]);
   const [recentMatches, setRecentMatches] = useState([]);
   const [upcomingMatches, setUpcomingMatches] = useState([]);
@@ -31,7 +27,7 @@ export default function Dashboard() {
       setUpcomingMatches(upcomingRes.data.matches);
       setPlayerCount(playersRes.data.total);
     } catch {
-      setError('Could not load dashboard data. Is the backend running?');
+      setError('Could not load dashboard data.');
     } finally {
       setLoading(false);
     }
@@ -60,11 +56,9 @@ export default function Dashboard() {
             </div>
 
             <div className="flex gap-3">
-              {isAdmin && (
-                <Link to="/matches/new" id="dashboard-quick-match" className="btn-primary btn btn-lg">
-                  ⚡ Quick Match
-                </Link>
-              )}
+              <Link to="/matches/new" id="dashboard-quick-match" className="btn-primary btn btn-lg">
+                ⚡ Quick Match
+              </Link>
               <Link to="/matches" id="dashboard-view-history" className="btn-secondary btn btn-lg">
                 Match History
               </Link>
@@ -129,13 +123,11 @@ export default function Dashboard() {
                 <EmptyState
                   icon="📅"
                   title="No upcoming matches"
-                  description={isAdmin ? 'Start a Quick Match to get going!' : 'Check back later.'}
+                  description="Start a Quick Match to get going!"
                   action={
-                    isAdmin && (
-                      <Link to="/matches/new" className="btn-primary btn btn-sm">
-                        ⚡ Quick Match
-                      </Link>
-                    )
+                    <Link to="/matches/new" className="btn-primary btn btn-sm">
+                      ⚡ Quick Match
+                    </Link>
                   }
                 />
               ) : (

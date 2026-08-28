@@ -1,56 +1,81 @@
-import axios from 'axios';
+import { playerService } from './playerService';
+import * as matchEngine from '../engines/matchEngine';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-
-const api = axios.create({
-  baseURL: BASE_URL,
-  headers: { 'Content-Type': 'application/json' },
-});
-
-// Attach JWT token to every request if present
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('mandir11_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// ─── Auth ─────────────────────────────────────────────────────────────────────
+// ─── Local-First Auth (No-op / Open Access) ───────────────────────────────────
 
 export const authApi = {
-  login: (username, password) =>
-    api.post('/auth/login', { username, password }),
-  register: (username, password, invite_code) =>
-    api.post('/auth/register', { username, password, invite_code }),
+  login: async (_username, _password) => {
+    return { data: { access_token: 'local_token' } };
+  },
+  register: async (_username, _password, _invite_code) => {
+    return { data: { access_token: 'local_token' } };
+  },
 };
 
-// ─── Players ──────────────────────────────────────────────────────────────────
+// ─── Players API (Local-First Adapter) ────────────────────────────────────────
 
 export const playersApi = {
-  list: (activeOnly = false) =>
-    api.get('/players', { params: { active_only: activeOnly } }),
-  get: (id) => api.get(`/players/${id}`),
-  create: (name) => api.post('/players', { name }),
-  toggle: (id, is_active) => api.patch(`/players/${id}`, { is_active }),
+  list: async (activeOnly = false) => {
+    const data = await playerService.list(activeOnly);
+    return { data };
+  },
+  get: async (id) => {
+    const data = await playerService.get(id);
+    return { data };
+  },
+  create: async (name) => {
+    const data = await playerService.create(name);
+    return { data };
+  },
+  toggle: async (id, isActive) => {
+    const data = await playerService.toggle(id, isActive);
+    return { data };
+  },
 };
 
-// ─── Matches ──────────────────────────────────────────────────────────────────
+// ─── Matches API (Local-First Adapter) ────────────────────────────────────────
 
 export const matchesApi = {
-  list: (params = {}) => api.get('/matches', { params }),
-  get: (id) => api.get(`/matches/${id}`),
-  create: (sport, tournament_id = null) =>
-    api.post('/matches', { sport, tournament_id }),
-  createTeams: (id, teams) =>
-    api.post(`/matches/${id}/teams`, { teams }),
-  start: (id) => api.post(`/matches/${id}/start`),
-  enterResult: (id, team_a_score, team_b_score, winning_team_id) =>
-    api.post(`/matches/${id}/result`, { team_a_score, team_b_score, winning_team_id }),
-  end: (id, reason) =>
-    api.post(`/matches/${id}/end`, { reason }),
-  setPlayerOfMatch: (id, player_id) =>
-    api.post(`/matches/${id}/player_of_match`, { player_id }),
+  list: async (params = {}) => {
+    const data = await matchEngine.listMatches(params);
+    return { data };
+  },
+  get: async (id) => {
+    const data = await matchEngine.getMatch(id);
+    return { data };
+  },
+  create: async (sport, tournament_id = null) => {
+    const data = await matchEngine.createMatch({ sport, tournament_id });
+    return { data };
+  },
+  createTeams: async (id, teams) => {
+    const data = await matchEngine.createTeams(id, { teams });
+    return { data };
+  },
+  start: async (id) => {
+    const data = await matchEngine.startMatch(id);
+    return { data };
+  },
+  enterResult: async (id, team_a_score, team_b_score, winning_team_id) => {
+    const data = await matchEngine.enterResult(id, {
+      team_a_score,
+      team_b_score,
+      winning_team_id,
+    });
+    return { data };
+  },
+  end: async (id, reason) => {
+    const data = await matchEngine.endMatch(id, { reason });
+    return { data };
+  },
+  setPlayerOfMatch: async (id, player_id) => {
+    const data = await matchEngine.setPlayerOfMatch(id, { player_id });
+    return { data };
+  },
 };
 
-export default api;
+export default {
+  players: playersApi,
+  matches: matchesApi,
+  auth: authApi,
+};

@@ -1,17 +1,15 @@
 import { useEffect, useState } from 'react';
 import { playersApi } from '../services/api';
-import { useAuth } from '../hooks/useAuth';
 import { LoadingSpinner, EmptyState, ErrorState, ConfirmDialog } from '../components/ui';
 
 export default function Players() {
-  const { isAdmin } = useAuth();
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [newName, setNewName] = useState('');
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState(null);
-  const [confirm, setConfirm] = useState(null);  // { player, targetActive }
+  const [confirm, setConfirm] = useState(null); // { player, targetActive }
 
   const load = async () => {
     setLoading(true);
@@ -38,7 +36,7 @@ export default function Players() {
       setNewName('');
       await load();
     } catch (err) {
-      setAddError(err.response?.data?.detail || 'Failed to add player.');
+      setAddError(err.response?.data?.detail || err.message || 'Failed to add player.');
     } finally {
       setAdding(false);
     }
@@ -73,35 +71,33 @@ export default function Players() {
           </div>
         </div>
 
-        {/* Add player form (admin only) */}
-        {isAdmin && (
-          <form onSubmit={handleAdd} id="form-add-player" className="card p-5 mb-8">
-            <h2 className="section-title mb-4">Add Player</h2>
-            <div className="flex gap-3">
-              <input
-                id="input-player-name"
-                type="text"
-                className="input flex-1"
-                placeholder="Player name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                disabled={adding}
-                maxLength={100}
-              />
-              <button
-                id="btn-add-player"
-                type="submit"
-                className="btn-primary btn"
-                disabled={adding || !newName.trim()}
-              >
-                {adding ? 'Adding…' : 'Add Player'}
-              </button>
-            </div>
-            {addError && (
-              <p className="mt-2 text-sm text-red-400">{addError}</p>
-            )}
-          </form>
-        )}
+        {/* Add player form */}
+        <form onSubmit={handleAdd} id="form-add-player" className="card p-5 mb-8">
+          <h2 className="section-title mb-4">Add Player</h2>
+          <div className="flex gap-3">
+            <input
+              id="input-player-name"
+              type="text"
+              className="input flex-1"
+              placeholder="Player name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              disabled={adding}
+              maxLength={100}
+            />
+            <button
+              id="btn-add-player"
+              type="submit"
+              className="btn-primary btn"
+              disabled={adding || !newName.trim()}
+            >
+              {adding ? 'Adding…' : 'Add Player'}
+            </button>
+          </div>
+          {addError && (
+            <p className="mt-2 text-sm text-red-400">{addError}</p>
+          )}
+        </form>
 
         {/* Player list */}
         {loading ? (
@@ -112,7 +108,7 @@ export default function Players() {
           <EmptyState
             icon="👥"
             title="No players yet"
-            description={isAdmin ? 'Add the first player above.' : 'No players have been added yet.'}
+            description="Add the first player above."
           />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -141,19 +137,17 @@ export default function Players() {
                   </div>
                 </div>
 
-                {/* Toggle (admin only) */}
-                {isAdmin && (
-                  <button
-                    id={`btn-toggle-${player.id}`}
-                    type="button"
-                    onClick={() => setConfirm({ player, targetActive: !player.is_active })}
-                    className={`btn btn-sm ${
-                      player.is_active ? 'btn-secondary' : 'btn-primary'
-                    }`}
-                  >
-                    {player.is_active ? 'Deactivate' : 'Activate'}
-                  </button>
-                )}
+                {/* Toggle */}
+                <button
+                  id={`btn-toggle-${player.id}`}
+                  type="button"
+                  onClick={() => setConfirm({ player, targetActive: !player.is_active })}
+                  className={`btn btn-sm ${
+                    player.is_active ? 'btn-secondary' : 'btn-primary'
+                  }`}
+                >
+                  {player.is_active ? 'Deactivate' : 'Activate'}
+                </button>
               </div>
             ))}
           </div>

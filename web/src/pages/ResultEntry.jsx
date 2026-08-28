@@ -65,7 +65,7 @@ export default function ResultEntry() {
       );
       setConfirmEnd(true);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to submit result.');
+      setError(err.response?.data?.detail || err.message || 'Failed to submit result.');
     } finally {
       setSubmitting(false);
     }
@@ -78,7 +78,7 @@ export default function ResultEntry() {
       await matchesApi.end(matchId, endReason);
       navigate(`/matches/${matchId}`);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to end match.');
+      setError(err.response?.data?.detail || err.message || 'Failed to end match.');
     } finally {
       setSubmitting(false);
     }
