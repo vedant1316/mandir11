@@ -155,6 +155,13 @@ export default function Dashboard() {
             </section>
           </div>
         )}
+
+        {/* Footer */}
+        <footer className="mt-16 py-8 border-t border-surface-700/50 text-center">
+          <p className="text-xs text-gray-500 font-medium tracking-wide">
+            This app was created by Vedant for Mandir 11
+          </p>
+        </footer>
       </div>
     </div>
   );
