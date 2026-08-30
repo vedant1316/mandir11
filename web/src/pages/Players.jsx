@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { playersApi } from '../services/api';
 import { LoadingSpinner, EmptyState, ErrorState, ConfirmDialog } from '../components/ui';
 
@@ -121,13 +122,21 @@ export default function Players() {
                 }`}
               >
                 {/* Avatar */}
-                <div className="w-10 h-10 rounded-full bg-brand-500/20 flex items-center justify-center text-brand-300 font-bold text-lg flex-shrink-0">
+                <Link
+                  to={`/players/${player.id}`}
+                  className="w-10 h-10 rounded-full bg-brand-500/20 hover:bg-brand-500/30 flex items-center justify-center text-brand-300 font-bold text-lg flex-shrink-0 transition-colors"
+                >
                   {player.name.charAt(0).toUpperCase()}
-                </div>
+                </Link>
 
                 {/* Name + status */}
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-white truncate">{player.name}</p>
+                  <Link
+                    to={`/players/${player.id}`}
+                    className="font-semibold text-white truncate hover:text-brand-300 transition-colors block"
+                  >
+                    {player.name}
+                  </Link>
                   <div className="mt-0.5">
                     {player.is_active ? (
                       <span className="badge-green">Active</span>

@@ -9,6 +9,8 @@ import MatchDetail from './pages/MatchDetail';
 import ResultEntry from './pages/ResultEntry';
 import CricketScorer from './pages/CricketScorer';
 import Ledger from './pages/Ledger';
+import Leaderboard from './pages/Leaderboard';
+import PlayerProfile from './pages/PlayerProfile';
 
 function AppRoutes() {
   return (
@@ -17,6 +19,8 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/players" element={<Players />} />
+        <Route path="/players/:playerId" element={<PlayerProfile />} />
+        <Route path="/rankings" element={<Leaderboard />} />
         <Route path="/matches" element={<MatchHistory />} />
         <Route path="/ledger" element={<Ledger />} />
         <Route path="/matches/:matchId" element={<MatchDetail />} />

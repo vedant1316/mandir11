@@ -2,6 +2,7 @@ import { playerService } from './playerService';
 import * as matchEngine from '../engines/matchEngine';
 import * as cricketScorer from '../engines/cricketScorer';
 import * as ledgerEngine from '../engines/ledgerEngine';
+import * as statsEngine from '../engines/statsEngine';
 
 // ─── Local-First Auth (No-op / Open Access) ───────────────────────────────────
 
@@ -146,12 +147,35 @@ export const ledgerApi = {
   },
 };
 
+// ─── Stats & Rankings API (Local-First Adapter) ───────────────────────────────
+
+export const statsApi = {
+  getPlayerStats: async (playerId, sport = null) => {
+    const data = await statsEngine.getPlayerStats(playerId, sport);
+    return { data };
+  },
+  getRankings: async (sport = 'overall') => {
+    const data = await statsEngine.getRankings(sport);
+    return { data };
+  },
+  getStreaks: async (sport = null) => {
+    const data = await statsEngine.getStreaks(sport);
+    return { data };
+  },
+  getLeaderboardSummary: async () => {
+    const data = await statsEngine.getLeaderboardSummary();
+    return { data };
+  },
+};
+
 export default {
   players: playersApi,
   matches: matchesApi,
   cricket: cricketApi,
   ledger: ledgerApi,
+  stats: statsApi,
   auth: authApi,
 };
+
 
 
