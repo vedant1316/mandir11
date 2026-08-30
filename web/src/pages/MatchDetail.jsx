@@ -33,6 +33,8 @@ export default function MatchDetail() {
   const [pomError, setPomError] = useState(null);
   const [abandonConfirm, setAbandonConfirm] = useState(false);
   const [abandoning, setAbandoning] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [scorecardTab, setScorecardTab] = useState(1);
 
   const load = useCallback(async () => {
@@ -112,6 +114,18 @@ export default function MatchDetail() {
       setError(err.response?.data?.detail || err.message || 'Failed to abandon match.');
     } finally {
       setAbandoning(false);
+    }
+  };
+
+  const handleDeleteMatch = async () => {
+    setDeleteConfirm(false);
+    setDeleting(true);
+    try {
+      await matchesApi.delete(matchId);
+      navigate('/matches', { replace: true });
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to delete match.');
+      setDeleting(false);
     }
   };
 
@@ -496,6 +510,18 @@ export default function MatchDetail() {
               </button>
             </div>
           )}
+
+          {/* Delete Match */}
+          <div className="pt-2">
+            <button
+              id="btn-delete-match"
+              onClick={() => setDeleteConfirm(true)}
+              disabled={deleting || abandoning}
+              className="btn-danger btn w-full"
+            >
+              {deleting ? 'Deleting Match…' : '🗑️ Delete Match'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -505,6 +531,17 @@ export default function MatchDetail() {
           message="This will mark the match as abandoned. This cannot be undone."
           onConfirm={handleAbandon}
           onCancel={() => setAbandonConfirm(false)}
+          dangerous
+        />
+      )}
+
+      {deleteConfirm && (
+        <ConfirmDialog
+          title="Delete Match Permanently?"
+          message="Deleting this match will permanently remove its scores, cricket history, teams, results, and money ledger records from this device. This cannot be undone."
+          confirmText="Delete Permanently"
+          onConfirm={handleDeleteMatch}
+          onCancel={() => setDeleteConfirm(false)}
           dangerous
         />
       )}

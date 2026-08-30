@@ -74,6 +74,10 @@ export const matchesApi = {
     const data = await matchEngine.setPlayerOfMatch(id, { player_id });
     return { data };
   },
+  delete: async (id) => {
+    const data = await matchEngine.deleteMatch(id);
+    return { data };
+  },
 };
 
 // ─── Cricket API (Local-First Adapter) ────────────────────────────────────────

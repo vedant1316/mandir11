@@ -357,3 +357,59 @@ export async function setPlayerOfMatch(matchId, data, db = defaultDb) {
 
   return getMatch(matchId, db);
 }
+
+export async function deleteMatch(matchId, db = defaultDb) {
+  const matchRecord = await db.matches.get(matchId);
+  if (!matchRecord) {
+    throw new MatchNotFoundError(`Match '${matchId}' not found.`);
+  }
+
+  await db.transaction(
+    'rw',
+    [
+      db.matches,
+      db.teams,
+      db.team_players,
+      db.match_results,
+      db.innings,
+      db.overs,
+      db.balls,
+      db.ledger_entries,
+      db.fixtures,
+    ],
+    async () => {
+      // 1. Teams & Team Players
+      const teams = await db.teams.where('match_id').equals(matchId).toArray();
+      for (const team of teams) {
+        await db.team_players.where('team_id').equals(team.id).delete();
+      }
+      await db.teams.where('match_id').equals(matchId).delete();
+
+      // 2. Match Results
+      await db.match_results.where('match_id').equals(matchId).delete();
+
+      // 3. Cricket Innings, Overs, Balls
+      const innings = await db.innings.where('match_id').equals(matchId).toArray();
+      for (const inn of innings) {
+        await db.balls.where('innings_id').equals(inn.id).delete();
+        await db.overs.where('innings_id').equals(inn.id).delete();
+      }
+      await db.innings.where('match_id').equals(matchId).delete();
+
+      // 4. Ledger Entries
+      await db.ledger_entries.where('match_id').equals(matchId).delete();
+
+      // 5. Fixtures referencing this match
+      const fixtures = await db.fixtures.where('match_id').equals(matchId).toArray();
+      for (const fix of fixtures) {
+        await db.fixtures.update(fix.id, { match_id: null });
+      }
+
+      // 6. Delete Match record
+      await db.matches.delete(matchId);
+    }
+  );
+
+  return { success: true, matchId };
+}
+
