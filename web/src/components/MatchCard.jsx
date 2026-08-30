@@ -29,9 +29,14 @@ export default function MatchCard({ match }) {
   const teamB = getTeam(match, 'Team B');
   const winner = getWinner(match);
 
+  const destination =
+    match.sport === 'cricket' && match.status === 'live'
+      ? `/matches/${match.id}/score`
+      : `/matches/${match.id}`;
+
   return (
     <Link
-      to={`/matches/${match.id}`}
+      to={destination}
       id={`match-card-${match.id}`}
       className="card-hover block p-5 animate-slide-up"
     >
@@ -47,10 +52,15 @@ export default function MatchCard({ match }) {
             </p>
           </div>
         </div>
-        <span className={STATUS_CLASS[match.status] || 'badge-gray'}>
-          {match.status === 'live' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-          {match.status}
-        </span>
+        <div className="flex items-center gap-2">
+          {match.sport === 'cricket' && match.status === 'live' && (
+            <span className="badge-blue text-[10px]">Score 🏏</span>
+          )}
+          <span className={STATUS_CLASS[match.status] || 'badge-gray'}>
+            {match.status === 'live' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+            {match.status}
+          </span>
+        </div>
       </div>
 
       {/* Teams */}
@@ -61,7 +71,9 @@ export default function MatchCard({ match }) {
             <p className="text-gray-400 leading-relaxed">{teamPlayerNames(teamA)}</p>
             {match.result && (
               <p className="mt-2 font-bold text-white text-sm">
-                {match.result.team_a_score ?? '—'}
+                {match.result.team_a_score !== null && match.result.team_a_score !== undefined
+                  ? match.result.team_a_score
+                  : '—'}
               </p>
             )}
           </div>
@@ -70,7 +82,9 @@ export default function MatchCard({ match }) {
             <p className="text-gray-400 leading-relaxed">{teamPlayerNames(teamB)}</p>
             {match.result && (
               <p className="mt-2 font-bold text-white text-sm">
-                {match.result.team_b_score ?? '—'}
+                {match.result.team_b_score !== null && match.result.team_b_score !== undefined
+                  ? match.result.team_b_score
+                  : '—'}
               </p>
             )}
           </div>

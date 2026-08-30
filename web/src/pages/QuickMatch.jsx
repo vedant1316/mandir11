@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { matchesApi, playersApi } from '../services/api';
+import { matchesApi, playersApi, cricketApi } from '../services/api';
 import PlayerBadge from '../components/PlayerBadge';
 
 const STEPS = [
@@ -12,9 +12,9 @@ const STEPS = [
 ];
 
 const SPORTS = [
+  { id: 'cricket',    label: 'Cricket',    emoji: '🏏', desc: 'Ball-by-ball scoring' },
   { id: 'volleyball', label: 'Volleyball', emoji: '🏐', desc: 'Final score entry' },
   { id: 'badminton',  label: 'Badminton',  emoji: '🏸', desc: 'Singles & Doubles, final score entry' },
-  { id: 'cricket',   label: 'Cricket',    emoji: '🏏', desc: 'Coming in Phase 2', disabled: true },
 ];
 
 export default function QuickMatch() {
@@ -32,6 +32,12 @@ export default function QuickMatch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Cricket specific settings
+  const [oversLimit, setOversLimit] = useState(5);
+  const [battingFirstTeam, setBattingFirstTeam] = useState('A'); // 'A' | 'B'
+  const [openingBatterId, setOpeningBatterId] = useState('');
+  const [openingBowlerId, setOpeningBowlerId] = useState('');
+
   // Load active players when reaching step 2
   useEffect(() => {
     if (step === 2) {
@@ -45,6 +51,20 @@ export default function QuickMatch() {
       })();
     }
   }, [step]);
+
+  // Pre-select opening batter and bowler when entering Step 4
+  useEffect(() => {
+    if (step === 4 && sport === 'cricket') {
+      const battingPlayerIds = battingFirstTeam === 'A' ? teamA : teamB;
+      const bowlingPlayerIds = battingFirstTeam === 'A' ? teamB : teamA;
+      if (battingPlayerIds.length > 0 && !openingBatterId) {
+        setOpeningBatterId(battingPlayerIds[0]);
+      }
+      if (bowlingPlayerIds.length > 0 && !openingBowlerId) {
+        setOpeningBowlerId(bowlingPlayerIds[0]);
+      }
+    }
+  }, [step, sport, battingFirstTeam, teamA, teamB, openingBatterId, openingBowlerId]);
 
   const togglePlayerSelect = (pid) => {
     setSelectedPlayerIds((prev) => {
@@ -62,10 +82,10 @@ export default function QuickMatch() {
 
   const moveToTeam = (pid, team) => {
     if (team === 'A') {
-      setTeamA((a) => a.includes(pid) ? a : [...a, pid]);
+      setTeamA((a) => (a.includes(pid) ? a : [...a, pid]));
       setTeamB((b) => b.filter((id) => id !== pid));
     } else {
-      setTeamB((b) => b.includes(pid) ? b : [...b, pid]);
+      setTeamB((b) => (b.includes(pid) ? b : [...b, pid]));
       setTeamA((a) => a.filter((id) => id !== pid));
     }
   };
@@ -119,7 +139,7 @@ export default function QuickMatch() {
       const matchRes = await matchesApi.create(sport);
       const mid = matchRes.data.id;
 
-      await matchesApi.createTeams(mid, [
+      const teamsRes = await matchesApi.createTeams(mid, [
         { label: 'Team A', player_ids: teamA },
         { label: 'Team B', player_ids: teamB },
       ]);
@@ -127,6 +147,27 @@ export default function QuickMatch() {
       const startRes = await matchesApi.start(mid);
       setMatchId(mid);
       setMatchData(startRes.data);
+
+      if (sport === 'cricket') {
+        const teams = teamsRes.data.teams;
+        const teamARecord = teams.find((t) => t.label === 'Team A');
+        const teamBRecord = teams.find((t) => t.label === 'Team B');
+        const battingTeamRecord = battingFirstTeam === 'A' ? teamARecord : teamBRecord;
+
+        await cricketApi.initInnings({
+          matchId: mid,
+          battingTeamId: battingTeamRecord.id,
+          inningsNumber: 1,
+          oversLimit: parseInt(oversLimit, 10) || 5,
+          openingBatterId: openingBatterId || null,
+          openingBowlerId: openingBowlerId || null,
+        });
+
+        // Navigate directly to cricket scoring
+        navigate(`/matches/${mid}/score`);
+        return;
+      }
+
       setStep(5);
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Failed to create match.');
@@ -136,7 +177,11 @@ export default function QuickMatch() {
   };
 
   const handleEnterResult = () => {
-    navigate(`/matches/${matchId}/result`, { state: { match: matchData } });
+    if (sport === 'cricket') {
+      navigate(`/matches/${matchId}/score`);
+    } else {
+      navigate(`/matches/${matchId}/result`, { state: { match: matchData } });
+    }
   };
 
   // ── Render ─────────────────────────────────────────────────────
@@ -209,12 +254,7 @@ export default function QuickMatch() {
                   <p className="font-bold text-white text-lg">{s.label}</p>
                   <p className="text-sm text-gray-500">{s.desc}</p>
                 </div>
-                {s.disabled && (
-                  <span className="badge-blue text-xs">Phase 2</span>
-                )}
-                {!s.disabled && (
-                  <span className="text-brand-400 text-xl">→</span>
-                )}
+                <span className="text-brand-400 text-xl">→</span>
               </button>
             ))}
           </div>
@@ -327,10 +367,10 @@ export default function QuickMatch() {
           </div>
         )}
 
-        {/* ─── Step 4: Review ───────────────────────────────────── */}
+        {/* ─── Step 4: Review & Cricket Settings ─────────────────── */}
         {step === 4 && (
-          <div id="step-review" className="animate-slide-up">
-            <h2 className="section-title mb-6">Review</h2>
+          <div id="step-review" className="animate-slide-up space-y-6">
+            <h2 className="section-title">Review Match Setup</h2>
 
             <div className="card p-5 space-y-5">
               <div className="flex items-center gap-3 pb-4 border-b border-surface-600/50">
@@ -348,11 +388,11 @@ export default function QuickMatch() {
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="font-semibold text-brand-300 mb-2">
-                    Team A · {teamA.length} players
+                    Team A · {teamA.length} player{teamA.length !== 1 ? 's' : ''}
                   </p>
                   <ul className="space-y-1">
                     {teamA.map((pid) => (
-                      <li key={pid} className="text-gray-300">
+                      <li key={pid} className="text-gray-300 text-xs">
                         {getPlayer(pid)?.name}
                       </li>
                     ))}
@@ -360,11 +400,11 @@ export default function QuickMatch() {
                 </div>
                 <div>
                   <p className="font-semibold text-amber-400 mb-2">
-                    Team B · {teamB.length} players
+                    Team B · {teamB.length} player{teamB.length !== 1 ? 's' : ''}
                   </p>
                   <ul className="space-y-1">
                     {teamB.map((pid) => (
-                      <li key={pid} className="text-gray-300">
+                      <li key={pid} className="text-gray-300 text-xs">
                         {getPlayer(pid)?.name}
                       </li>
                     ))}
@@ -373,7 +413,112 @@ export default function QuickMatch() {
               </div>
             </div>
 
-            <div className="flex gap-3 justify-between mt-6">
+            {/* Cricket-specific settings */}
+            {sport === 'cricket' && (
+              <div id="cricket-settings-panel" className="card p-5 space-y-4 border-brand-500/30">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <span>🏏</span> Cricket Match Settings
+                </h3>
+
+                {/* Overs selector */}
+                <div>
+                  <label className="label">Overs per Innings</label>
+                  <div className="flex items-center gap-2 flex-wrap mb-2">
+                    {[2, 4, 5, 6, 8, 10, 15, 20].map((ov) => (
+                      <button
+                        key={ov}
+                        id={`overs-chip-${ov}`}
+                        type="button"
+                        onClick={() => setOversLimit(ov)}
+                        className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+                          oversLimit === ov
+                            ? 'bg-brand-500 border-brand-400 text-white'
+                            : 'bg-surface-700 border-surface-600 text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        {ov} ov
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Toss / Batting First */}
+                <div>
+                  <label className="label">Who bats first?</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      id="bat-first-a"
+                      onClick={() => {
+                        setBattingFirstTeam('A');
+                        setOpeningBatterId(teamA[0] || '');
+                        setOpeningBowlerId(teamB[0] || '');
+                      }}
+                      className={`p-3 rounded-xl border text-center transition-all ${
+                        battingFirstTeam === 'A'
+                          ? 'bg-brand-500/20 border-brand-500 text-brand-300 font-bold'
+                          : 'bg-surface-700 border-surface-600 text-gray-400'
+                      }`}
+                    >
+                      Team A Bats First
+                    </button>
+                    <button
+                      type="button"
+                      id="bat-first-b"
+                      onClick={() => {
+                        setBattingFirstTeam('B');
+                        setOpeningBatterId(teamB[0] || '');
+                        setOpeningBowlerId(teamA[0] || '');
+                      }}
+                      className={`p-3 rounded-xl border text-center transition-all ${
+                        battingFirstTeam === 'B'
+                          ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold'
+                          : 'bg-surface-700 border-surface-600 text-gray-400'
+                      }`}
+                    >
+                      Team B Bats First
+                    </button>
+                  </div>
+                </div>
+
+                {/* Opening Batter & Bowler */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Opening Batter</label>
+                    <select
+                      id="select-opening-batter"
+                      className="input text-xs"
+                      value={openingBatterId}
+                      onChange={(e) => setOpeningBatterId(e.target.value)}
+                    >
+                      {(battingFirstTeam === 'A' ? teamA : teamB).map((pid) => (
+                        <option key={pid} value={pid}>
+                          {getPlayer(pid)?.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="label">Opening Bowler</label>
+                    <select
+                      id="select-opening-bowler"
+                      className="input text-xs"
+                      value={openingBowlerId}
+                      onChange={(e) => setOpeningBowlerId(e.target.value)}
+                    >
+                      {(battingFirstTeam === 'A' ? teamB : teamA).map((pid) => (
+                        <option key={pid} value={pid}>
+                          {getPlayer(pid)?.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 justify-between">
               <button id="step4-back" onClick={() => setStep(3)} className="btn-secondary btn">← Edit</button>
               <button
                 id="step4-start"
@@ -381,13 +526,13 @@ export default function QuickMatch() {
                 disabled={loading}
                 className="btn-primary btn btn-lg"
               >
-                {loading ? 'Creating match…' : '🏁 Start Match'}
+                {loading ? 'Creating match…' : sport === 'cricket' ? '🏏 Start & Score Match' : '🏁 Start Match'}
               </button>
             </div>
           </div>
         )}
 
-        {/* ─── Step 5: Match started ────────────────────────────── */}
+        {/* ─── Step 5: Match started (Volleyball / Badminton) ─────── */}
         {step === 5 && matchData && (
           <div id="step-live" className="animate-slide-up text-center py-8">
             <div className="text-6xl mb-4">🏁</div>

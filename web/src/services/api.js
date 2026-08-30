@@ -1,5 +1,6 @@
 import { playerService } from './playerService';
 import * as matchEngine from '../engines/matchEngine';
+import * as cricketScorer from '../engines/cricketScorer';
 
 // ─── Local-First Auth (No-op / Open Access) ───────────────────────────────────
 
@@ -74,8 +75,51 @@ export const matchesApi = {
   },
 };
 
+// ─── Cricket API (Local-First Adapter) ────────────────────────────────────────
+
+export const cricketApi = {
+  initInnings: async (params) => {
+    const data = await cricketScorer.initInnings(params);
+    return { data };
+  },
+  recordBall: async (params) => {
+    const data = await cricketScorer.recordBall(params);
+    return { data };
+  },
+  startNextOver: async (params) => {
+    const data = await cricketScorer.startNextOver(params);
+    return { data };
+  },
+  switchInnings: async (params) => {
+    const data = await cricketScorer.switchInnings(params);
+    return { data };
+  },
+  undoLastBall: async (params) => {
+    const data = await cricketScorer.undoLastBall(params);
+    return { data };
+  },
+  changeBatter: async (params) => {
+    const data = await cricketScorer.changeBatter(params);
+    return { data };
+  },
+  changeBowler: async (params) => {
+    const data = await cricketScorer.changeBowler(params);
+    return { data };
+  },
+  getInningsState: async (inningsId) => {
+    const data = await cricketScorer.getInningsState(inningsId);
+    return { data };
+  },
+  getMatchScorecard: async (matchId) => {
+    const data = await cricketScorer.getMatchScorecard(matchId);
+    return { data };
+  },
+};
+
 export default {
   players: playersApi,
   matches: matchesApi,
+  cricket: cricketApi,
   auth: authApi,
 };
+

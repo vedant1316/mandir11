@@ -7,6 +7,7 @@ import QuickMatch from './pages/QuickMatch';
 import MatchHistory from './pages/MatchHistory';
 import MatchDetail from './pages/MatchDetail';
 import ResultEntry from './pages/ResultEntry';
+import CricketScorer from './pages/CricketScorer';
 
 function AppRoutes() {
   return (
@@ -17,6 +18,7 @@ function AppRoutes() {
         <Route path="/players" element={<Players />} />
         <Route path="/matches" element={<MatchHistory />} />
         <Route path="/matches/:matchId" element={<MatchDetail />} />
+        <Route path="/matches/:matchId/score" element={<CricketScorer />} />
         <Route path="/matches/:matchId/result" element={<ResultEntry />} />
         <Route path="/matches/new" element={<QuickMatch />} />
         <Route path="/login" element={<Navigate to="/" replace />} />

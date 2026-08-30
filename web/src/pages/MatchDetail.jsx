@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { matchesApi, playersApi } from '../services/api';
+import { matchesApi, playersApi, cricketApi } from '../services/api';
 import { LoadingSpinner, ErrorState, ConfirmDialog } from '../components/ui';
 
 const SPORT_EMOJI = { cricket: '🏏', volleyball: '🏐', badminton: '🏸' };
@@ -23,6 +23,7 @@ export default function MatchDetail() {
   const navigate = useNavigate();
 
   const [match, setMatch] = useState(null);
+  const [cricketScorecard, setCricketScorecard] = useState(null);
   const [allPlayers, setAllPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -31,8 +32,9 @@ export default function MatchDetail() {
   const [pomError, setPomError] = useState(null);
   const [abandonConfirm, setAbandonConfirm] = useState(false);
   const [abandoning, setAbandoning] = useState(false);
+  const [scorecardTab, setScorecardTab] = useState(1);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -40,16 +42,24 @@ export default function MatchDetail() {
         matchesApi.get(matchId),
         playersApi.list(false),
       ]);
-      setMatch(matchRes.data);
+      const m = matchRes.data;
+      setMatch(m);
       setAllPlayers(playersRes.data.players);
+
+      if (m.sport === 'cricket') {
+        const scRes = await cricketApi.getMatchScorecard(matchId);
+        setCricketScorecard(scRes.data);
+      }
     } catch {
       setError('Match not found.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [matchId]);
 
-  useEffect(() => { load(); }, [matchId]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   if (loading) return <div className="page"><div className="container-app"><LoadingSpinner /></div></div>;
   if (error || !match) return (
@@ -102,8 +112,12 @@ export default function MatchDetail() {
     }
   };
 
+  const selectedInnScorecard = cricketScorecard?.innings.find(
+    (i) => i.innings.innings_number === scorecardTab
+  );
+
   return (
-    <div className="page">
+    <div className="page pb-16">
       <div className="container-app max-w-2xl">
         {/* Back */}
         <button onClick={() => navigate(-1)} className="btn-ghost btn btn-sm mb-6">
@@ -142,10 +156,16 @@ export default function MatchDetail() {
             <div id="winner-banner" className="mb-4 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-3">
               <span className="text-2xl">🏆</span>
               <div>
-                <p className="text-emerald-300 font-bold">{winner.label} won!</p>
+                <p className="text-emerald-300 font-bold">
+                  {match.sport === 'cricket' && cricketScorecard?.resultSummary
+                    ? cricketScorecard.resultSummary
+                    : `${winner.label} won!`}
+                </p>
                 {match.result?.team_a_score !== null && match.result?.team_b_score !== null && (
                   <p className="text-sm text-gray-400">
-                    {match.result.team_a_score} – {match.result.team_b_score}
+                    {match.sport === 'cricket'
+                      ? `Team A: ${match.result.team_a_score} · Team B: ${match.result.team_b_score}`
+                      : `${match.result.team_a_score} – ${match.result.team_b_score}`}
                   </p>
                 )}
               </div>
@@ -162,7 +182,7 @@ export default function MatchDetail() {
           )}
         </div>
 
-        {/* Teams */}
+        {/* Teams Overview */}
         <div className="grid grid-cols-2 gap-4 mb-6">
           <TeamDetailCard
             id="team-a-detail"
@@ -170,6 +190,8 @@ export default function MatchDetail() {
             result={match.result}
             isWinner={winner?.label === 'Team A'}
             scoreKey="team_a_score"
+            sport={match.sport}
+            cricketInnings={cricketScorecard?.innings.find((i) => i.battingTeam?.label === 'Team A')}
           />
           <TeamDetailCard
             id="team-b-detail"
@@ -177,19 +199,153 @@ export default function MatchDetail() {
             result={match.result}
             isWinner={winner?.label === 'Team B'}
             scoreKey="team_b_score"
+            sport={match.sport}
+            cricketInnings={cricketScorecard?.innings.find((i) => i.battingTeam?.label === 'Team B')}
           />
         </div>
 
+        {/* ── Cricket Scorecard Details ──────────────────────────── */}
+        {match.sport === 'cricket' && cricketScorecard && cricketScorecard.innings.length > 0 && (
+          <div className="card p-5 mb-6 space-y-4">
+            <h3 className="section-title text-base flex items-center gap-2">
+              <span>📊</span> Full Cricket Scorecard
+            </h3>
+
+            {/* Innings Tabs */}
+            {cricketScorecard.innings.length > 1 && (
+              <div className="flex gap-2 pb-2 border-b border-surface-600/40">
+                {cricketScorecard.innings.map((inn) => (
+                  <button
+                    key={inn.innings.id}
+                    onClick={() => setScorecardTab(inn.innings.innings_number)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                      scorecardTab === inn.innings.innings_number
+                        ? 'bg-brand-500 text-white'
+                        : 'bg-surface-700 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    Inn {inn.innings.innings_number}: {inn.battingTeam?.label} ({inn.totalRuns}/{inn.totalWickets})
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedInnScorecard && (
+              <div className="space-y-5">
+                {/* Batting Table */}
+                <div>
+                  <h4 className="text-xs uppercase font-bold text-brand-300 mb-2">
+                    Batting · {selectedInnScorecard.battingTeam?.label}
+                  </h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-surface-600 text-gray-500">
+                          <th className="pb-2 font-medium">Batter</th>
+                          <th className="pb-2 font-medium">Dismissal</th>
+                          <th className="pb-2 font-medium text-right">R</th>
+                          <th className="pb-2 font-medium text-right">B</th>
+                          <th className="pb-2 font-medium text-right">4s</th>
+                          <th className="pb-2 font-medium text-right">6s</th>
+                          <th className="pb-2 font-medium text-right">SR</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-surface-700/40">
+                        {selectedInnScorecard.battingScorecard.map((b) => (
+                          <tr key={b.id} className="text-gray-300">
+                            <td className="py-2 font-semibold text-white">
+                              {b.player?.name}
+                              {b.status === 'batting' && !selectedInnScorecard.isInningsClosed && (
+                                <span className="text-brand-400 ml-1">*</span>
+                              )}
+                            </td>
+                            <td className="py-2 text-[11px] text-gray-400">
+                              {b.isOut
+                                ? `${b.dismissalType} ${b.dismissedBy ? `b ${b.dismissedBy}` : ''}`
+                                : b.status === 'batting'
+                                ? 'not out'
+                                : 'yet to bat'}
+                            </td>
+                            <td className="py-2 text-right font-bold text-white">{b.runs}</td>
+                            <td className="py-2 text-right text-gray-400">{b.balls}</td>
+                            <td className="py-2 text-right text-gray-400">{b.fours}</td>
+                            <td className="py-2 text-right text-gray-400">{b.sixes}</td>
+                            <td className="py-2 text-right text-gray-400">{b.strikeRate}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="mt-2 pt-2 border-t border-surface-600/50 flex justify-between text-xs text-gray-400">
+                    <span>
+                      Extras: <strong>{selectedInnScorecard.extras.totalExtras}</strong> (wd {selectedInnScorecard.extras.wides}, nb {selectedInnScorecard.extras.noBalls})
+                    </span>
+                    <span>
+                      Total: <strong className="text-white text-sm">{selectedInnScorecard.totalRuns}/{selectedInnScorecard.totalWickets}</strong> ({selectedInnScorecard.oversFormatted} ov)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bowling Table */}
+                <div>
+                  <h4 className="text-xs uppercase font-bold text-amber-400 mb-2">
+                    Bowling · {selectedInnScorecard.bowlingTeam?.label}
+                  </h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-surface-600 text-gray-500">
+                          <th className="pb-2 font-medium">Bowler</th>
+                          <th className="pb-2 font-medium text-right">O</th>
+                          <th className="pb-2 font-medium text-right">M</th>
+                          <th className="pb-2 font-medium text-right">R</th>
+                          <th className="pb-2 font-medium text-right">W</th>
+                          <th className="pb-2 font-medium text-right">Econ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-surface-700/40">
+                        {selectedInnScorecard.bowlingScorecard.map((bw) => (
+                          <tr key={bw.id} className="text-gray-300">
+                            <td className="py-2 font-semibold text-white">{bw.player?.name}</td>
+                            <td className="py-2 text-right text-gray-300">{bw.oversFormatted}</td>
+                            <td className="py-2 text-right text-gray-400">{bw.maidens}</td>
+                            <td className="py-2 text-right font-bold text-white">{bw.runs}</td>
+                            <td className="py-2 text-right font-black text-brand-400">{bw.wickets}</td>
+                            <td className="py-2 text-right text-gray-400">{bw.economy}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Fall of Wickets */}
+                {selectedInnScorecard.fallOfWickets?.length > 0 && (
+                  <div>
+                    <h4 className="text-xs uppercase font-bold text-gray-400 mb-1">Fall of Wickets</h4>
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                      {selectedInnScorecard.fallOfWickets
+                        .map((f) => `${f.score}-${f.wicketNumber} (${f.batterName}, ${f.overs} ov)`)
+                        .join(', ')}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Match actions */}
         <div className="space-y-4">
-          {/* Enter result / continue */}
+          {/* Enter result / score */}
           {match.status === 'live' && (
             <Link
-              to={`/matches/${matchId}/result`}
+              to={match.sport === 'cricket' ? `/matches/${matchId}/score` : `/matches/${matchId}/result`}
               id="btn-enter-result"
-              className="btn-primary btn w-full block text-center"
+              className="btn-primary btn w-full block text-center btn-lg"
             >
-              Enter Result
+              {match.sport === 'cricket' ? '🏏 Open Live Scorer' : 'Enter Result'}
             </Link>
           )}
 
@@ -205,7 +361,7 @@ export default function MatchDetail() {
             </button>
           )}
 
-          {/* Player of Match selection */}
+          {/* Player of Match selection for completed match */}
           {match.status === 'completed' && !match.player_of_match_id && (
             <div className="card p-5">
               <h3 className="section-title mb-4">⭐ Select Player of the Match</h3>
@@ -252,7 +408,7 @@ export default function MatchDetail() {
   );
 }
 
-function TeamDetailCard({ id, team, result, isWinner, scoreKey }) {
+function TeamDetailCard({ id, team, result, isWinner, scoreKey, sport, cricketInnings }) {
   if (!team) return (
     <div id={id} className="card p-4">
       <p className="text-xs text-gray-600 italic">No team assigned</p>
@@ -272,11 +428,16 @@ function TeamDetailCard({ id, team, result, isWinner, scoreKey }) {
         {isWinner && <span className="text-emerald-400 text-sm">🏆</span>}
       </div>
 
-      {score !== null && score !== undefined && (
+      {sport === 'cricket' && cricketInnings ? (
+        <p className={`text-2xl font-black mb-3 ${isWinner ? 'text-emerald-300' : 'text-white'}`}>
+          {cricketInnings.totalRuns}/{cricketInnings.totalWickets}{' '}
+          <span className="text-xs font-normal text-gray-400">({cricketInnings.oversFormatted} ov)</span>
+        </p>
+      ) : score !== null && score !== undefined ? (
         <p className={`text-3xl font-black mb-3 ${isWinner ? 'text-emerald-300' : 'text-white'}`}>
           {score}
         </p>
-      )}
+      ) : null}
 
       <div className="space-y-1">
         {team.players?.map((tp) => (
