@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { cricketApi, matchesApi, playersApi } from '../services/api';
+import { cricketApi, playersApi } from '../services/api';
 import { LoadingSpinner, ErrorState } from '../components/ui';
 import { downloadScoreboardImage } from '../services/scoreboardGenerator';
 

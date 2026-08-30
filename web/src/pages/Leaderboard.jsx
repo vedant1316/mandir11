@@ -33,6 +33,19 @@ export default function Leaderboard() {
     loadRankings();
   }, [loadRankings]);
 
+  const sortedRankings = (data?.rankings ? [...data.rankings] : [])
+    .sort((a, b) => {
+      if (b.rankingPoints !== a.rankingPoints) return b.rankingPoints - a.rankingPoints;
+      if (b.wins !== a.wins) return b.wins - a.wins;
+      if ((b.wickets || 0) !== (a.wickets || 0)) return (b.wickets || 0) - (a.wickets || 0);
+      if ((b.runs || 0) !== (a.runs || 0)) return (b.runs || 0) - (a.runs || 0);
+      return (b.matches || 0) - (a.matches || 0);
+    })
+    .map((row, idx) => ({
+      ...row,
+      rank: idx + 1,
+    }));
+
   return (
     <div className="page pb-16">
       <div className="container-app max-w-4xl space-y-8">
@@ -82,7 +95,7 @@ export default function Leaderboard() {
           </div>
         ) : error || !data ? (
           <ErrorState message={error || 'Failed to load rankings.'} onRetry={loadRankings} />
-        ) : data.rankings.length === 0 ? (
+        ) : sortedRankings.length === 0 ? (
           <div className="card p-12 text-center text-gray-400">
             <span className="text-4xl block mb-2">🏅</span>
             <p className="font-semibold text-white">No ranked match data yet</p>
@@ -91,33 +104,33 @@ export default function Leaderboard() {
         ) : (
           <div className="space-y-8 animate-slide-up">
             {/* ── Top 3 Podium (if >= 2 players) ────────────────── */}
-            {data.rankings.length >= 2 && (
+            {sortedRankings.length >= 2 && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-                {/* 2nd Place (Silver) */}
-                {data.rankings[1] && (
-                  <PodiumCard
-                    badge="🥈 #2"
-                    color="border-gray-400/30 bg-gradient-to-b from-gray-400/10 to-surface-800"
-                    item={data.rankings[1]}
-                  />
-                )}
-
                 {/* 1st Place (Gold) */}
-                {data.rankings[0] && (
+                {sortedRankings[0] && (
                   <PodiumCard
                     badge="👑 #1"
                     color="border-amber-400/40 bg-gradient-to-b from-amber-400/15 to-surface-800 ring-1 ring-amber-400/30"
-                    item={data.rankings[0]}
+                    item={sortedRankings[0]}
                     featured
                   />
                 )}
 
+                {/* 2nd Place (Silver) */}
+                {sortedRankings[1] && (
+                  <PodiumCard
+                    badge="🥈 #2"
+                    color="border-gray-400/30 bg-gradient-to-b from-gray-400/10 to-surface-800"
+                    item={sortedRankings[1]}
+                  />
+                )}
+
                 {/* 3rd Place (Bronze) */}
-                {data.rankings[2] && (
+                {sortedRankings[2] && (
                   <PodiumCard
                     badge="🥉 #3"
                     color="border-amber-700/30 bg-gradient-to-b from-amber-700/10 to-surface-800"
-                    item={data.rankings[2]}
+                    item={sortedRankings[2]}
                   />
                 )}
               </div>
@@ -128,7 +141,7 @@ export default function Leaderboard() {
               <h2 className="section-title text-base flex items-center justify-between">
                 <span>Standings Table</span>
                 <span className="text-xs font-normal text-gray-500">
-                  {data.rankings.length} player{data.rankings.length !== 1 ? 's' : ''}
+                  {sortedRankings.length} player{sortedRankings.length !== 1 ? 's' : ''}
                 </span>
               </h2>
 
@@ -149,7 +162,7 @@ export default function Leaderboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-surface-700/50">
-                    {data.rankings.map((row) => (
+                    {sortedRankings.map((row) => (
                       <tr
                         key={row.playerId}
                         className="text-gray-300 hover:bg-surface-700/40 transition-colors"
