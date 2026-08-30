@@ -4,6 +4,7 @@ import * as cricketScorer from '../engines/cricketScorer';
 import * as ledgerEngine from '../engines/ledgerEngine';
 import * as statsEngine from '../engines/statsEngine';
 import * as tournamentEngine from '../engines/tournamentEngine';
+import * as backupEngine from '../engines/backupEngine';
 
 // ─── Local-First Auth (No-op / Open Access) ───────────────────────────────────
 
@@ -198,6 +199,34 @@ export const tournamentsApi = {
   },
 };
 
+// ─── Backup & Data Management API (Local-First Adapter) ───────────────────────
+
+export const backupApi = {
+  export: async () => {
+    const data = await backupEngine.exportBackup();
+    return { data };
+  },
+  download: async () => {
+    const data = await backupEngine.downloadBackupFile();
+    return { data };
+  },
+  validate: (backup) => {
+    return backupEngine.validateBackup(backup);
+  },
+  import: async (backup) => {
+    const data = await backupEngine.importBackup(backup);
+    return { data };
+  },
+  reset: async () => {
+    const data = await backupEngine.resetDatabase();
+    return { data };
+  },
+  getStats: async () => {
+    const data = await backupEngine.getDatabaseStats();
+    return { data };
+  },
+};
+
 export default {
   players: playersApi,
   matches: matchesApi,
@@ -205,8 +234,10 @@ export default {
   ledger: ledgerApi,
   stats: statsApi,
   tournaments: tournamentsApi,
+  backup: backupApi,
   auth: authApi,
 };
+
 
 
 

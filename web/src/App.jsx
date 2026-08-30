@@ -13,6 +13,7 @@ import Leaderboard from './pages/Leaderboard';
 import PlayerProfile from './pages/PlayerProfile';
 import Tournaments from './pages/Tournaments';
 import TournamentDetail from './pages/TournamentDetail';
+import Settings from './pages/Settings';
 
 function AppRoutes() {
   return (
@@ -27,6 +28,7 @@ function AppRoutes() {
         <Route path="/rankings" element={<Leaderboard />} />
         <Route path="/matches" element={<MatchHistory />} />
         <Route path="/ledger" element={<Ledger />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="/matches/:matchId" element={<MatchDetail />} />
         <Route path="/matches/:matchId/score" element={<CricketScorer />} />
         <Route path="/matches/:matchId/result" element={<ResultEntry />} />

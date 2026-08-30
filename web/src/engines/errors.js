@@ -130,5 +130,20 @@ export class TournamentValidationError extends TournamentError {
   }
 }
 
+export class BackupError extends MatchEngineError {
+  constructor(detail = 'Backup error.', statusCode = 400) {
+    super(detail, statusCode);
+    this.name = 'BackupError';
+  }
+}
+
+export class BackupValidationError extends BackupError {
+  constructor(detail = 'Invalid backup structure or format.') {
+    super(detail, 422);
+    this.name = 'BackupValidationError';
+  }
+}
+
+
 
 

@@ -7,6 +7,7 @@ const navItems = [
   { to: '/rankings', label: 'Rankings', id: 'nav-rankings' },
   { to: '/players', label: 'Players', id: 'nav-players' },
   { to: '/ledger', label: 'Ledger', id: 'nav-ledger' },
+  { to: '/settings', label: 'Settings', id: 'nav-settings' },
 ];
 
 export default function Navbar() {
