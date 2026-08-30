@@ -102,4 +102,33 @@ export class InvalidStakeParticipantError extends LedgerError {
   }
 }
 
+export class TournamentError extends MatchEngineError {
+  constructor(detail = 'Tournament error.', statusCode = 400) {
+    super(detail, statusCode);
+    this.name = 'TournamentError';
+  }
+}
+
+export class TournamentNotFoundError extends TournamentError {
+  constructor(detail = 'Tournament not found.') {
+    super(detail, 404);
+    this.name = 'TournamentNotFoundError';
+  }
+}
+
+export class FixtureNotFoundError extends TournamentError {
+  constructor(detail = 'Fixture not found.') {
+    super(detail, 404);
+    this.name = 'FixtureNotFoundError';
+  }
+}
+
+export class TournamentValidationError extends TournamentError {
+  constructor(detail = 'Invalid tournament configuration.') {
+    super(detail, 422);
+    this.name = 'TournamentValidationError';
+  }
+}
+
+
 

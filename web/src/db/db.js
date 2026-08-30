@@ -14,8 +14,8 @@ export class Mandir11Database extends Dexie {
       overs: 'id, innings_id, over_number, bowler_id',
       balls: 'id, over_id, innings_id, ball_number, batter_id, dismissed_player_id, created_at',
       ledger_entries: 'id, match_id, player_a_id, player_b_id, created_at',
-      tournaments: 'id, name, sport, format, status',
-      fixtures: 'id, tournament_id, match_id',
+      tournaments: 'id, name, sport, format, status, created_at',
+      fixtures: 'id, tournament_id, match_id, round_number, round_label, status, created_at',
     });
   }
 }

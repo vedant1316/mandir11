@@ -3,6 +3,7 @@ import * as matchEngine from '../engines/matchEngine';
 import * as cricketScorer from '../engines/cricketScorer';
 import * as ledgerEngine from '../engines/ledgerEngine';
 import * as statsEngine from '../engines/statsEngine';
+import * as tournamentEngine from '../engines/tournamentEngine';
 
 // ─── Local-First Auth (No-op / Open Access) ───────────────────────────────────
 
@@ -168,14 +169,45 @@ export const statsApi = {
   },
 };
 
+// ─── Tournaments API (Local-First Adapter) ────────────────────────────────────
+
+export const tournamentsApi = {
+  list: async (filters = {}) => {
+    const data = await tournamentEngine.listTournaments(filters);
+    return { data };
+  },
+  get: async (id) => {
+    const data = await tournamentEngine.getTournamentDetails(id);
+    return { data };
+  },
+  create: async (payload) => {
+    const data = await tournamentEngine.createTournament(payload);
+    return { data };
+  },
+  startFixtureMatch: async (fixtureId) => {
+    const data = await tournamentEngine.startFixtureMatch(fixtureId);
+    return { data };
+  },
+  advance: async (tournamentId) => {
+    const data = await tournamentEngine.advanceTournament(tournamentId);
+    return { data };
+  },
+  delete: async (id) => {
+    const data = await tournamentEngine.deleteTournament(id);
+    return { data };
+  },
+};
+
 export default {
   players: playersApi,
   matches: matchesApi,
   cricket: cricketApi,
   ledger: ledgerApi,
   stats: statsApi,
+  tournaments: tournamentsApi,
   auth: authApi,
 };
+
 
 
 
