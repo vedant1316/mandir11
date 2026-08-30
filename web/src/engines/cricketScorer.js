@@ -1,4 +1,5 @@
 import { db as defaultDb } from '../db/db';
+import { calculateMatchMvp } from './matchEngine';
 import {
   MatchNotFoundError,
   MatchStateError,
@@ -419,43 +420,16 @@ export async function recordBall(
     is_closed: shouldCloseInnings,
   });
 
-  // If match completed, record match result and update match status
   if (matchCompleted) {
-    await db.matches.update(matchId, {
-      status: 'completed',
-      end_reason: matchEndReason,
-    });
-
     const teams = await db.teams.where('match_id').equals(matchId).toArray();
     const teamA = teams.find((t) => t.label === 'Team A');
 
-    const allInnings = await db.innings.where('match_id').equals(matchId).toArray();
-    const inn1 = allInnings.find((i) => i.innings_number === 1);
-    const inn2 = allInnings.find((i) => i.innings_number === 2);
-    const inn3 = allInnings.find((i) => i.innings_number === 3);
-    const inn4 = allInnings.find((i) => i.innings_number === 4);
+    const allInns = await db.innings.where('match_id').equals(matchId).toArray();
+    const teamAInnings = allInns.filter((inn) => inn.batting_team_id === teamA?.id);
+    const teamBInnings = allInns.filter((inn) => inn.batting_team_id !== teamA?.id);
 
-    let scoreA = null;
-    let scoreB = null;
-
-    if (!isTest) {
-      if (inn1 && inn2) {
-        if (inn1.batting_team_id === teamA?.id) {
-          scoreA = inn1.total_runs;
-          scoreB = inn2.total_runs;
-        } else {
-          scoreA = inn2.total_runs;
-          scoreB = inn1.total_runs;
-        }
-      }
-    } else {
-      // Test match aggregates
-      const teamAInnings = [inn1, inn3].filter((inn) => inn?.batting_team_id === teamA?.id);
-      const teamBInnings = [inn2, inn4].filter((inn) => inn?.batting_team_id !== teamA?.id);
-
-      scoreA = teamAInnings.reduce((acc, inn) => acc + (inn?.total_runs || 0), 0);
-      scoreB = teamBInnings.reduce((acc, inn) => acc + (inn?.total_runs || 0), 0);
-    }
+    const scoreA = teamAInnings.reduce((acc, inn) => acc + (inn.total_runs || 0), 0);
+    const scoreB = teamBInnings.reduce((acc, inn) => acc + (inn.total_runs || 0), 0);
 
     const existingResult = await db.match_results.where('match_id').equals(matchId).first();
     if (existingResult) {
@@ -473,6 +447,14 @@ export async function recordBall(
         team_b_score: scoreB,
       });
     }
+
+    const mvp = await calculateMatchMvp(matchId, db);
+
+    await db.matches.update(matchId, {
+      status: 'completed',
+      end_reason: matchEndReason,
+      player_of_match_id: mvp.playerOfMatchId || null,
+    });
   }
 
   return getInningsState(inningsId, db);
@@ -654,11 +636,6 @@ export async function declareInnings({ matchId, inningsId }, db = defaultDb) {
   }
 
   if (matchCompleted) {
-    await db.matches.update(matchId, {
-      status: 'completed',
-      end_reason: matchEndReason,
-    });
-
     const teams = await db.teams.where('match_id').equals(matchId).toArray();
     const teamA = teams.find((t) => t.label === 'Team A');
 
@@ -685,6 +662,14 @@ export async function declareInnings({ matchId, inningsId }, db = defaultDb) {
         team_b_score: scoreB,
       });
     }
+
+    const mvp = await calculateMatchMvp(matchId, db);
+
+    await db.matches.update(matchId, {
+      status: 'completed',
+      end_reason: matchEndReason,
+      player_of_match_id: mvp.playerOfMatchId || null,
+    });
   }
 
   return getInningsState(inningsId, db);
@@ -704,11 +689,6 @@ export async function endMatchAsDraw(matchId, db = defaultDb) {
       await db.innings.update(inn.id, { is_closed: true });
     }
   }
-
-  await db.matches.update(matchId, {
-    status: 'completed',
-    end_reason: 'draw',
-  });
 
   const teams = await db.teams.where('match_id').equals(matchId).toArray();
   const teamA = teams.find((t) => t.label === 'Team A');
@@ -735,6 +715,14 @@ export async function endMatchAsDraw(matchId, db = defaultDb) {
       team_b_score: scoreB,
     });
   }
+
+  const mvp = await calculateMatchMvp(matchId, db);
+
+  await db.matches.update(matchId, {
+    status: 'completed',
+    end_reason: 'draw',
+    player_of_match_id: mvp.playerOfMatchId || null,
+  });
 
   return getMatchScorecard(matchId, db);
 }
@@ -1332,11 +1320,17 @@ export async function getMatchScorecard(matchId, db = defaultDb) {
     }
   }
 
-  const pomPlayer = match.player_of_match_id ? await db.players.get(match.player_of_match_id) : null;
+  const updatedMatch = await db.matches.get(matchId);
+  const pomPlayer = updatedMatch?.player_of_match_id
+    ? await db.players.get(updatedMatch.player_of_match_id)
+    : null;
+  const mvpDetails = updatedMatch?.status === 'completed'
+    ? await calculateMatchMvp(matchId, db)
+    : null;
 
   return {
     match: {
-      ...match,
+      ...(updatedMatch || match),
       teams: hydratedTeams,
       result: result || null,
     },
@@ -1344,5 +1338,6 @@ export async function getMatchScorecard(matchId, db = defaultDb) {
     winner,
     resultSummary,
     playerOfMatch: pomPlayer || null,
+    mvpDetails: mvpDetails || null,
   };
 }

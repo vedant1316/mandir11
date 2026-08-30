@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { matchesApi, playersApi, cricketApi, ledgerApi } from '../services/api';
 import PlayerBadge from '../components/PlayerBadge';
 
@@ -20,6 +20,7 @@ const SPORTS = [
 
 export default function QuickMatch() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Wizard state
   const [step, setStep] = useState(1);
@@ -32,6 +33,7 @@ export default function QuickMatch() {
   const [matchData, setMatchData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
 
   // Stakes / Ledger state
   const [stakePairs, setStakePairs] = useState([]); // [{ id, playerAId, playerBId, amount }]
@@ -47,6 +49,34 @@ export default function QuickMatch() {
   const [openingBatterId, setOpeningBatterId] = useState('');
   const [openingBowlerId, setOpeningBowlerId] = useState('');
 
+  // Handle Play Again navigation prefill
+  useEffect(() => {
+    const playState = location.state;
+    if (playState?.playAgain) {
+      if (playState.sport) setSport(playState.sport);
+      if (playState.cricketFormat) setCricketFormat(playState.cricketFormat);
+      if (playState.oversLimit) setOversLimit(playState.oversLimit);
+      if (playState.teamA) setTeamA(playState.teamA);
+      if (playState.teamB) setTeamB(playState.teamB);
+
+      const allIds = new Set([...(playState.teamA || []), ...(playState.teamB || [])]);
+      setSelectedPlayerIds(allIds);
+
+      // Load active players
+      (async () => {
+        try {
+          const res = await playersApi.list(true);
+          setAllPlayers(res.data.players);
+        } catch {
+          // ignore
+        }
+      })();
+
+      setStep(3);
+      setNotice('🔄 Prefilled teams & settings from completed match. Review or edit before starting.');
+    }
+  }, [location.state]);
+
   // Load active players when reaching step 2
   useEffect(() => {
     if (step === 2) {
@@ -60,6 +90,72 @@ export default function QuickMatch() {
       })();
     }
   }, [step]);
+
+  // Quick Action: Reuse Teams from Last Match
+  const handleReuseLastTeams = async () => {
+    setError(null);
+    setNotice(null);
+    try {
+      let currentPlayers = allPlayers;
+      if (currentPlayers.length === 0) {
+        const pRes = await playersApi.list(true);
+        currentPlayers = pRes.data.players;
+        setAllPlayers(currentPlayers);
+      }
+
+      const res = await matchesApi.getLastTeams();
+      if (!res.data || (!res.data.teamA.length && !res.data.teamB.length)) {
+        setError('No previous match lineups found on this device.');
+        return;
+      }
+
+      const lastTeams = res.data;
+      setTeamA(lastTeams.teamA);
+      setTeamB(lastTeams.teamB);
+      setSelectedPlayerIds(new Set([...lastTeams.teamA, ...lastTeams.teamB]));
+      if (lastTeams.sport && !sport) {
+        setSport(lastTeams.sport);
+      }
+      if (lastTeams.cricketFormat) {
+        setCricketFormat(lastTeams.cricketFormat);
+      }
+      if (lastTeams.oversLimit) {
+        setOversLimit(lastTeams.oversLimit);
+      }
+
+      setNotice('⚡ Loaded Team A & Team B lineups from the most recent match.');
+      if (step < 3) {
+        setStep(3);
+      }
+    } catch {
+      setError('Failed to load teams from last match.');
+    }
+  };
+
+  // Quick Action: Reuse Settings from Last Match
+  const handleReuseLastSettings = async () => {
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await matchesApi.getLastSettings();
+      if (!res.data) {
+        setError('No previous match settings found on this device.');
+        return;
+      }
+      const s = res.data;
+      setSport(s.sport);
+      if (s.sport === 'cricket') {
+        if (s.cricketFormat) setCricketFormat(s.cricketFormat);
+        if (s.oversLimit) setOversLimit(s.oversLimit);
+      }
+      setNotice(`⚙️ Applied settings from last match (${s.sport.toUpperCase()}${s.cricketFormat ? ` · ${s.cricketFormat}` : ''}).`);
+      if (step === 1) {
+        setStep(2);
+      }
+    } catch {
+      setError('Failed to load settings from last match.');
+    }
+  };
 
   // Pre-select defaults when reaching Stakes or Review
   useEffect(() => {
@@ -307,10 +403,17 @@ export default function QuickMatch() {
           </div>
         )}
 
+        {notice && (
+          <div id="quickmatch-notice" className="mb-6 p-4 bg-brand-500/10 border border-brand-500/30 rounded-xl text-sm text-brand-300 flex items-center justify-between">
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice(null)} className="text-gray-400 hover:text-white font-bold text-xs ml-2">✕</button>
+          </div>
+        )}
+
         {/* ─── Step 1: Sport ────────────────────────────────────── */}
         {step === 1 && (
           <div id="step-sport" className="animate-slide-up space-y-4">
-            <h2 className="section-title mb-6">Choose a sport</h2>
+            <h2 className="section-title mb-4">Choose a sport</h2>
             {SPORTS.map((s) => (
               <button
                 key={s.id}
@@ -332,15 +435,44 @@ export default function QuickMatch() {
                 <span className="text-brand-400 text-xl">→</span>
               </button>
             ))}
+
+            <div className="pt-2 flex flex-col sm:flex-row gap-3">
+              <button
+                id="btn-reuse-settings-step1"
+                type="button"
+                onClick={handleReuseLastSettings}
+                className="btn-secondary btn text-xs flex-1 flex items-center justify-center gap-2 py-3"
+              >
+                <span>⚙️</span> Reuse Last Match Settings
+              </button>
+              <button
+                id="btn-reuse-teams-step1"
+                type="button"
+                onClick={handleReuseLastTeams}
+                className="btn-secondary btn text-xs flex-1 flex items-center justify-center gap-2 py-3"
+              >
+                <span>⚡</span> Use Teams from Last Match
+              </button>
+            </div>
           </div>
         )}
 
         {/* ─── Step 2: Select players ───────────────────────────── */}
         {step === 2 && (
           <div id="step-players" className="animate-slide-up">
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
               <h2 className="section-title">Select players</h2>
-              <span className="badge-blue">{selectedPlayerIds.size} selected</span>
+              <div className="flex items-center gap-2">
+                <button
+                  id="btn-reuse-teams-step2"
+                  type="button"
+                  onClick={handleReuseLastTeams}
+                  className="btn-secondary btn btn-sm text-xs flex items-center gap-1.5"
+                >
+                  <span>⚡</span> Use Teams from Last Match
+                </button>
+                <span className="badge-blue">{selectedPlayerIds.size} selected</span>
+              </div>
             </div>
 
             {allPlayers.length === 0 ? (
@@ -375,7 +507,17 @@ export default function QuickMatch() {
         {/* ─── Step 3: Build teams ──────────────────────────────── */}
         {step === 3 && (
           <div id="step-teams" className="animate-slide-up">
-            <h2 className="section-title mb-2">Build teams</h2>
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <h2 className="section-title">Build teams</h2>
+              <button
+                id="btn-reuse-teams-step3"
+                type="button"
+                onClick={handleReuseLastTeams}
+                className="btn-secondary btn btn-sm text-xs flex items-center gap-1.5"
+              >
+                <span>⚡</span> Use Teams from Last Match
+              </button>
+            </div>
             <p className="text-xs text-gray-500 mb-6">
               Tap a player, then assign them to Team A or B. Teams can be different sizes.
             </p>

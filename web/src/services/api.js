@@ -85,6 +85,18 @@ export const matchesApi = {
     const data = await matchEngine.deleteMatch(id);
     return { data };
   },
+  getLastTeams: async () => {
+    const data = await matchEngine.getLastMatchTeams();
+    return { data };
+  },
+  getLastSettings: async () => {
+    const data = await matchEngine.getLastMatchSettings();
+    return { data };
+  },
+  calculateMvp: async (id) => {
+    const data = await matchEngine.calculateMatchMvp(id);
+    return { data };
+  },
 };
 
 // ─── Cricket API (Local-First Adapter) ────────────────────────────────────────

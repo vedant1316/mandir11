@@ -243,7 +243,7 @@ describe('StatsEngine & Leaderboard (IndexedDB Local-First)', () => {
     const { p1, p3 } = await createPlayersFixture();
 
     // 2 matches: 1 win for p1, 1 win for p3
-    // Formula for p1: (1 win * 3) + (1 loss * 0) + (2 matches * 0.1) = 3 + 0.2 = 3.2 pts
+    // Formula for p1: (1 win * 10) + (1 loss * 2) = 10 + 2 = 12 pts
     const m1 = await matchEngine.createMatch({ sport: 'volleyball' });
     const t1 = await matchEngine.createTeams(m1.id, {
       teams: [
@@ -277,10 +277,10 @@ describe('StatsEngine & Leaderboard (IndexedDB Local-First)', () => {
     await matchEngine.endMatch(m2.id, { reason: 'completed' });
 
     const p1Stats = await statsEngine.getPlayerStats(p1.id, 'overall', db, rankingRules);
-    expect(p1Stats.rankingPoints).toBe(3.2);
+    expect(p1Stats.rankingPoints).toBe(12);
 
     const p3Stats = await statsEngine.getPlayerStats(p3.id, 'overall', db, rankingRules);
-    expect(p3Stats.rankingPoints).toBe(3.2);
+    expect(p3Stats.rankingPoints).toBe(12);
   });
 
   // ── 6. Sport-Specific Rankings & Leaderboard ───────────────────

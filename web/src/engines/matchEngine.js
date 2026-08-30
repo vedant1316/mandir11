@@ -301,6 +301,135 @@ export async function enterResult(matchId, data, db = defaultDb) {
   return getMatch(matchId, db);
 }
 
+export async function calculateMatchMvp(matchId, db = defaultDb) {
+  const match = await db.matches.get(matchId);
+  if (!match) {
+    throw new MatchNotFoundError(`Match '${matchId}' not found.`);
+  }
+
+  const teams = await db.teams.where('match_id').equals(matchId).toArray();
+  if (teams.length === 0) {
+    return { playerOfMatchId: null, playerOfMatch: null, mvpScores: [] };
+  }
+
+  const result = await db.match_results.where('match_id').equals(matchId).first();
+  const winningTeamId = result?.winning_team_id || null;
+
+  // Gather all players with team info
+  const playerEntries = [];
+  for (const team of teams) {
+    const tps = await db.team_players.where('team_id').equals(team.id).toArray();
+    for (const tp of tps) {
+      const player = await db.players.get(tp.player_id);
+      playerEntries.push({
+        playerId: tp.player_id,
+        playerName: player?.name || 'Unknown',
+        player: player || null,
+        teamId: team.id,
+        teamLabel: team.label,
+      });
+    }
+  }
+
+  if (playerEntries.length === 0) {
+    return { playerOfMatchId: null, playerOfMatch: null, mvpScores: [] };
+  }
+
+  // Pre-load cricket balls and overs across all innings for this match
+  const isCricket = match.sport === 'cricket';
+  const ballsByBatter = new Map(); // playerId -> total runs
+  const wicketsByBowler = new Map(); // playerId -> total wickets
+
+  if (isCricket) {
+    const inningsList = await db.innings.where('match_id').equals(matchId).toArray();
+    for (const inn of inningsList) {
+      const overs = await db.overs.where('innings_id').equals(inn.id).toArray();
+      const overBowlerMap = new Map(overs.map((o) => [o.id, o.bowler_id]));
+
+      const balls = await db.balls.where('innings_id').equals(inn.id).toArray();
+      for (const b of balls) {
+        // Batter runs
+        if (b.batter_id) {
+          const currentRuns = ballsByBatter.get(b.batter_id) || 0;
+          ballsByBatter.set(b.batter_id, currentRuns + (b.runs || 0));
+        }
+
+        // Bowler wickets (non-run-out)
+        if (b.is_wicket && b.dismissal_type !== 'run_out' && b.over_id) {
+          const bowlerId = overBowlerMap.get(b.over_id);
+          if (bowlerId) {
+            const currentWickets = wicketsByBowler.get(bowlerId) || 0;
+            wicketsByBowler.set(bowlerId, currentWickets + 1);
+          }
+        }
+      }
+    }
+  }
+
+  const mvpScores = playerEntries.map((pe) => {
+    let outcome = 'tie';
+    let outcomePoints = 5;
+
+    if (winningTeamId) {
+      if (pe.teamId === winningTeamId) {
+        outcome = 'win';
+        outcomePoints = 10;
+      } else {
+        outcome = 'loss';
+        outcomePoints = 2;
+      }
+    }
+
+    const runs = isCricket ? ballsByBatter.get(pe.playerId) || 0 : 0;
+    const wickets = isCricket ? wicketsByBowler.get(pe.playerId) || 0 : 0;
+    const runPoints = runs * 1;
+    const wicketPoints = wickets * 5;
+    const totalPoints = outcomePoints + runPoints + wicketPoints;
+
+    return {
+      playerId: pe.playerId,
+      playerName: pe.playerName,
+      player: pe.player,
+      teamId: pe.teamId,
+      teamLabel: pe.teamLabel,
+      outcome,
+      outcomePoints,
+      runs,
+      runPoints,
+      wickets,
+      wicketPoints,
+      totalPoints,
+    };
+  });
+
+  // Deterministic sorting
+  mvpScores.sort((a, b) => {
+    // 1. Highest total MVP points
+    if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+    // 2. Highest wickets
+    if (b.wickets !== a.wickets) return b.wickets - a.wickets;
+    // 3. Highest runs
+    if (b.runs !== a.runs) return b.runs - a.runs;
+    // 4. Winning team priority
+    const aWin = a.outcome === 'win' ? 1 : 0;
+    const bWin = b.outcome === 'win' ? 1 : 0;
+    if (bWin !== aWin) return bWin - aWin;
+    // 5. Alphabetical name
+    const nameCmp = (a.playerName || '').localeCompare(b.playerName || '');
+    if (nameCmp !== 0) return nameCmp;
+    // 6. ID comparison
+    return (a.playerId || '').localeCompare(b.playerId || '');
+  });
+
+  const best = mvpScores[0] || null;
+
+  return {
+    playerOfMatchId: best ? best.playerId : null,
+    playerOfMatch: best ? best.player : null,
+    mvpScores,
+  };
+}
+
 export async function endMatch(matchId, data, db = defaultDb) {
   const matchRecord = await db.matches.get(matchId);
   if (!matchRecord) {
@@ -319,9 +448,16 @@ export async function endMatch(matchId, data, db = defaultDb) {
     }
   }
 
+  let autoPomId = matchRecord.player_of_match_id;
+  if (targetStatus === 'completed' && !autoPomId) {
+    const mvp = await calculateMatchMvp(matchId, db);
+    autoPomId = mvp.playerOfMatchId;
+  }
+
   await db.matches.update(matchId, {
     status: targetStatus,
     end_reason: data.reason,
+    player_of_match_id: autoPomId || null,
   });
 
   return getMatch(matchId, db);
@@ -357,6 +493,79 @@ export async function setPlayerOfMatch(matchId, data, db = defaultDb) {
   });
 
   return getMatch(matchId, db);
+}
+
+export async function getLastMatch(db = defaultDb) {
+  const allMatches = await db.matches.toArray();
+  if (allMatches.length === 0) return null;
+  allMatches.sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date));
+  return allMatches[0];
+}
+
+export async function getLastMatchTeams(db = defaultDb) {
+  const allMatches = await db.matches.toArray();
+  if (allMatches.length === 0) return null;
+  allMatches.sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date));
+
+  for (const m of allMatches) {
+    const teams = await db.teams.where('match_id').equals(m.id).toArray();
+    if (teams.length >= 2) {
+      const teamA = teams.find((t) => t.label === 'Team A') || teams[0];
+      const teamB = teams.find((t) => t.label === 'Team B') || teams[1];
+
+      const tpA = await db.team_players.where('team_id').equals(teamA.id).toArray();
+      const tpB = await db.team_players.where('team_id').equals(teamB.id).toArray();
+
+      const activePlayersA = [];
+      for (const tp of tpA) {
+        const p = await db.players.get(tp.player_id);
+        if (p && p.is_active) activePlayersA.push(p.id);
+      }
+
+      const activePlayersB = [];
+      for (const tp of tpB) {
+        const p = await db.players.get(tp.player_id);
+        if (p && p.is_active) activePlayersB.push(p.id);
+      }
+
+      if (activePlayersA.length > 0 && activePlayersB.length > 0) {
+        let oversLimit = 5;
+        if (m.sport === 'cricket') {
+          const inn = await db.innings.where('match_id').equals(m.id).first();
+          if (inn?.overs_limit) oversLimit = inn.overs_limit;
+        }
+
+        return {
+          matchId: m.id,
+          sport: m.sport,
+          cricketFormat: m.cricket_format || 'limited_overs',
+          oversLimit,
+          teamA: activePlayersA,
+          teamB: activePlayersB,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+export async function getLastMatchSettings(db = defaultDb) {
+  const lastMatch = await getLastMatch(db);
+  if (!lastMatch) return null;
+
+  let oversLimit = 5;
+  if (lastMatch.sport === 'cricket') {
+    const inn = await db.innings.where('match_id').equals(lastMatch.id).first();
+    if (inn?.overs_limit) oversLimit = inn.overs_limit;
+  }
+
+  return {
+    matchId: lastMatch.id,
+    sport: lastMatch.sport,
+    cricketFormat: lastMatch.cricket_format || 'limited_overs',
+    oversLimit,
+  };
 }
 
 export async function deleteMatch(matchId, db = defaultDb) {
@@ -413,4 +622,5 @@ export async function deleteMatch(matchId, db = defaultDb) {
 
   return { success: true, matchId };
 }
+
 

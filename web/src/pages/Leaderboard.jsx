@@ -48,14 +48,14 @@ export default function Leaderboard() {
           </div>
 
           {/* Config rules explanation badge */}
-          {data?.rules?.overall_ranking && (
-            <div className="card p-2.5 px-3 bg-surface-800 border-surface-600 text-[11px] text-gray-400 self-start sm:self-auto">
-              <span className="text-white font-bold">Scoring: </span>
-              Win: <span className="text-brand-300 font-bold">{data.rules.overall_ranking.win_weight} pts</span> ·
-              Loss: <span className="text-gray-300 font-bold">{data.rules.overall_ranking.loss_weight} pts</span> ·
-              Match: <span className="text-gray-300 font-bold">{data.rules.overall_ranking.participation_weight} pts</span>
-            </div>
-          )}
+          <div className="card p-2.5 px-3 bg-surface-800 border-surface-600 text-[11px] text-gray-400 self-start sm:self-auto">
+            <span className="text-white font-bold">Scoring: </span>
+            Win: <span className="text-emerald-400 font-bold">+10</span> ·
+            Loss: <span className="text-gray-300 font-bold">+2</span> ·
+            Tie: <span className="text-amber-400 font-bold">+5</span> ·
+            Run: <span className="text-brand-300 font-bold">+1</span> ·
+            Wicket: <span className="text-purple-300 font-bold">+5 pts</span>
+          </div>
         </div>
 
         {/* Sport Filter Tabs */}
@@ -138,17 +138,14 @@ export default function Leaderboard() {
                     <tr className="border-b border-surface-600 text-gray-500">
                       <th className="pb-3 font-semibold text-center w-12">Rank</th>
                       <th className="pb-3 font-semibold">Player</th>
+                      <th className="pb-3 font-semibold text-right">Points</th>
                       <th className="pb-3 font-semibold text-right">Matches</th>
-                      <th className="pb-3 font-semibold text-right">W – L</th>
+                      <th className="pb-3 font-semibold text-right">Wins</th>
+                      <th className="pb-3 font-semibold text-right">Losses</th>
+                      <th className="pb-3 font-semibold text-right">Runs</th>
+                      <th className="pb-3 font-semibold text-right">Wickets</th>
                       <th className="pb-3 font-semibold text-right">Win %</th>
-                      {sport === 'cricket' && (
-                        <>
-                          <th className="pb-3 font-semibold text-right">Runs</th>
-                          <th className="pb-3 font-semibold text-right">Wickets</th>
-                        </>
-                      )}
                       <th className="pb-3 font-semibold text-right">Streak</th>
-                      <th className="pb-3 font-semibold text-right">Pts</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-surface-700/50">
@@ -179,25 +176,21 @@ export default function Leaderboard() {
                             {row.player.name}
                           </Link>
                         </td>
-                        <td className="py-3.5 text-right text-gray-400">{row.matches}</td>
-                        <td className="py-3.5 text-right">
-                          <span className="text-emerald-400 font-semibold">{row.wins}</span>
-                          <span className="text-gray-500"> – </span>
-                          <span className="text-red-400 font-semibold">{row.losses}</span>
+                        <td className="py-3.5 text-right font-black text-brand-400 text-sm">
+                          {row.rankingPoints}
+                        </td>
+                        <td className="py-3.5 text-right text-gray-400 font-medium">{row.matches}</td>
+                        <td className="py-3.5 text-right text-emerald-400 font-bold">{row.wins}</td>
+                        <td className="py-3.5 text-right text-red-400 font-semibold">{row.losses}</td>
+                        <td className="py-3.5 text-right font-bold text-amber-300">
+                          {sport === 'volleyball' || sport === 'badminton' ? '—' : row.runs || 0}
+                        </td>
+                        <td className="py-3.5 text-right font-bold text-purple-300">
+                          {sport === 'volleyball' || sport === 'badminton' ? '—' : row.wickets || 0}
                         </td>
                         <td className="py-3.5 text-right font-semibold text-white">
                           {row.winPercentage}%
                         </td>
-                        {sport === 'cricket' && (
-                          <>
-                            <td className="py-3.5 text-right font-bold text-amber-300">
-                              {row.sportStats?.batting?.runs || 0}
-                            </td>
-                            <td className="py-3.5 text-right font-bold text-brand-400">
-                              {row.sportStats?.bowling?.wickets || 0}
-                            </td>
-                          </>
-                        )}
                         <td className="py-3.5 text-right text-gray-400 font-semibold">
                           {row.streaks?.currentStreakType === 'W' ? (
                             <span className="text-emerald-400 font-bold">🔥 {row.streaks.currentStreakDisplay}</span>
@@ -206,9 +199,6 @@ export default function Leaderboard() {
                           ) : (
                             '0'
                           )}
-                        </td>
-                        <td className="py-3.5 text-right font-black text-brand-400 text-sm">
-                          {row.rankingPoints}
                         </td>
                       </tr>
                     ))}
@@ -243,15 +233,20 @@ function PodiumCard({ badge, color, item, featured }) {
         >
           {item.player.name}
         </Link>
-        <p className="text-[11px] text-gray-400 mt-0.5">
-          {item.wins} Wins · {item.winPercentage}% Win Rate
+        <p className="text-[11px] text-gray-400 mt-1">
+          <span className="text-emerald-400 font-bold">{item.wins}W</span> · {item.losses}L · {item.winPercentage}% Win
         </p>
+        <div className="flex justify-center gap-3 text-[11px] text-gray-400 mt-1">
+          <span>🏏 <span className="text-amber-300 font-semibold">{item.runs || 0}</span> Runs</span>
+          <span>🎯 <span className="text-purple-300 font-semibold">{item.wickets || 0}</span> Wkts</span>
+        </div>
       </div>
 
       <div className="mt-4 pt-3 border-t border-surface-600/40 flex items-center justify-between text-xs">
-        <span className="text-gray-400">Score</span>
-        <span className="font-black text-brand-400 text-base">{item.rankingPoints} pts</span>
+        <span className="text-gray-400 font-semibold">Rank Score</span>
+        <span className="font-black text-brand-400 text-lg">{item.rankingPoints} pts</span>
       </div>
     </div>
   );
 }
+

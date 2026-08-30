@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { cricketApi, matchesApi, playersApi } from '../services/api';
 import { LoadingSpinner, ErrorState } from '../components/ui';
+import { downloadScoreboardImage } from '../services/scoreboardGenerator';
 
 const DISMISSAL_TYPES = [
   { id: 'bowled', label: 'Bowled' },
@@ -50,9 +51,6 @@ export default function CricketScorer() {
 
   const [showChangeBowlerModal, setShowChangeBowlerModal] = useState(false);
   const [newBowlerSelection, setNewBowlerSelection] = useState('');
-
-  const [pomPlayerId, setPomPlayerId] = useState('');
-  const [pomSubmitting, setPomSubmitting] = useState(false);
 
   const [scorecardTab, setScorecardTab] = useState(1); // 1, 2, 3, 4
   const [showDetailedScorecard, setShowDetailedScorecard] = useState(false);
@@ -280,6 +278,40 @@ export default function CricketScorer() {
     }
   };
 
+  const handlePlayAgain = () => {
+    const teams = matchScorecard?.match?.teams || [];
+    const teamA = teams.find((t) => t.label === 'Team A') || teams[0];
+    const teamB = teams.find((t) => t.label === 'Team B') || teams[1];
+
+    const teamAPlayerIds = teamA?.players?.map((p) => p.player_id) || [];
+    const teamBPlayerIds = teamB?.players?.map((p) => p.player_id) || [];
+
+    const oversLimit =
+      matchScorecard?.innings?.[0]?.oversLimit ||
+      matchScorecard?.innings?.[0]?.innings?.overs_limit ||
+      5;
+
+    navigate('/matches/new', {
+      state: {
+        playAgain: true,
+        sport: 'cricket',
+        cricketFormat: matchScorecard?.match?.cricket_format || 'limited_overs',
+        oversLimit,
+        teamA: teamAPlayerIds,
+        teamB: teamBPlayerIds,
+      },
+    });
+  };
+
+  const handleDownloadScoreboard = () => {
+    if (!matchScorecard?.match) return;
+    downloadScoreboardImage({
+      match: matchScorecard.match,
+      scorecard: matchScorecard,
+      allPlayers,
+    });
+  };
+
   const handleUndo = async () => {
     if (!activeInningsState || submitting) return;
     setSubmitting(true);
@@ -336,20 +368,6 @@ export default function CricketScorer() {
       setError(err.response?.data?.detail || err.message || 'Error changing bowler.');
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleSetPom = async () => {
-    if (!pomPlayerId) return;
-    setPomSubmitting(true);
-    try {
-      await matchesApi.setPlayerOfMatch(matchId, pomPlayerId);
-      showFlash('⭐ Player of Match updated!');
-      await loadState();
-    } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Failed to set Player of Match.');
-    } finally {
-      setPomSubmitting(false);
     }
   };
 
@@ -874,45 +892,56 @@ export default function CricketScorer() {
         {/* ── Match Completed Actions & POM ───────────────────────── */}
         {isMatchCompleted && (
           <div className="card p-5 mb-6 space-y-4">
-            <h3 className="section-title text-base">Match Actions</h3>
-            {!matchScorecard?.match.player_of_match_id ? (
-              <div>
-                <label className="label">⭐ Select Player of the Match</label>
-                <div className="flex gap-2">
-                  <select
-                    id="select-cricket-pom"
-                    className="input flex-1 text-sm"
-                    value={pomPlayerId}
-                    onChange={(e) => setPomPlayerId(e.target.value)}
-                  >
-                    <option value="">— Choose player —</option>
-                    {allPlayers.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    id="btn-save-cricket-pom"
-                    onClick={handleSetPom}
-                    disabled={!pomPlayerId || pomSubmitting}
-                    className="btn-primary btn"
-                  >
-                    {pomSubmitting ? 'Saving…' : 'Save'}
-                  </button>
+            <div className="flex items-center justify-between">
+              <h3 className="section-title text-base">Match Completed</h3>
+              <button
+                type="button"
+                onClick={() => navigate(`/matches/${matchId}`)}
+                className="btn-ghost btn btn-sm text-xs text-brand-300"
+              >
+                Full Details →
+              </button>
+            </div>
+
+            {matchScorecard?.playerOfMatch && (
+              <div id="cricket-pom-banner" className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-sm">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xl">⭐</span>
+                  <div>
+                    <span className="text-amber-300 font-bold block sm:inline mr-2">Man of the Match:</span>
+                    <span className="text-white font-semibold text-base">{matchScorecard.playerOfMatch.name}</span>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div id="cricket-pom-banner" className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-2 text-sm">
-                <span>⭐</span>
-                <span className="text-amber-300 font-semibold">Player of the Match:</span>
-                <span className="text-white">{matchScorecard.playerOfMatch?.name}</span>
+                {matchScorecard?.mvpDetails?.mvpScores?.find((s) => s.playerId === matchScorecard.playerOfMatch.id) && (
+                  <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    +{matchScorecard.mvpDetails.mvpScores.find((s) => s.playerId === matchScorecard.playerOfMatch.id).totalPoints} MVP Pts
+                  </span>
+                )}
               </div>
             )}
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <button
+                id="btn-download-cricket-scoreboard"
+                type="button"
+                onClick={handleDownloadScoreboard}
+                className="btn-secondary btn w-full flex items-center justify-center gap-2 py-2.5"
+              >
+                <span>📥</span> Download Scoreboard
+              </button>
+              <button
+                id="btn-cricket-play-again"
+                type="button"
+                onClick={handlePlayAgain}
+                className="btn-primary btn w-full flex items-center justify-center gap-2 py-2.5"
+              >
+                <span>🔄</span> Play Again
+              </button>
+            </div>
+
             <button
               onClick={handleUndo}
-              className="btn-ghost btn btn-sm text-gray-400 hover:text-white"
+              className="btn-ghost btn btn-sm text-gray-400 hover:text-white w-full text-center mt-1"
             >
               ⤺ Undo Last Delivery
             </button>

@@ -354,15 +354,41 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
     ...cricketDetails,
   };
 
-  // Overall Ranking Points using configurable weights
+  // Ranking Points using configurable weights
   const weights = rules.overall_ranking || defaultRules.overall_ranking;
-  const rankingPoints =
-    Math.round(
-      (totalWins * weights.win_weight +
-        totalLosses * weights.loss_weight +
-        totalMatches * weights.participation_weight) *
-        10
-    ) / 10;
+  const winWeight = weights.win_weight !== undefined ? weights.win_weight : 10;
+  const lossWeight = weights.loss_weight !== undefined ? weights.loss_weight : 2;
+  const tieWeight = weights.tie_weight !== undefined ? weights.tie_weight : 5;
+  const runWeight = weights.run_weight !== undefined ? weights.run_weight : 1;
+  const wicketWeight = weights.wicket_weight !== undefined ? weights.wicket_weight : 5;
+
+  const totalRuns = cricketDetails.batting.runs || 0;
+  const totalWickets = cricketDetails.bowling.wickets || 0;
+
+  const overallRankingPoints =
+    totalWins * winWeight +
+    totalLosses * lossWeight +
+    totalTies * tieWeight +
+    totalRuns * runWeight +
+    totalWickets * wicketWeight;
+
+  // Sport-specific ranking points
+  sportStats.cricket.rankingPoints =
+    sportStats.cricket.wins * winWeight +
+    sportStats.cricket.losses * lossWeight +
+    sportStats.cricket.ties * tieWeight +
+    (sportStats.cricket.batting?.runs || 0) * runWeight +
+    (sportStats.cricket.bowling?.wickets || 0) * wicketWeight;
+
+  sportStats.volleyball.rankingPoints =
+    sportStats.volleyball.wins * winWeight +
+    sportStats.volleyball.losses * lossWeight +
+    sportStats.volleyball.ties * tieWeight;
+
+  sportStats.badminton.rankingPoints =
+    sportStats.badminton.wins * winWeight +
+    sportStats.badminton.losses * lossWeight +
+    sportStats.badminton.ties * tieWeight;
 
   const fullStats = {
     playerId,
@@ -371,9 +397,11 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
     totalWins,
     totalLosses,
     totalTies,
+    totalRuns,
+    totalWickets,
     winPercentage: overallWinPercentage,
     playerOfMatchCount: pomCount,
-    rankingPoints,
+    rankingPoints: overallRankingPoints,
     streaks,
     sports: sportStats,
     recentMatches: playerMatches
@@ -396,7 +424,7 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
       sport,
       ...sportStats[sport],
       streaks,
-      rankingPoints,
+      rankingPoints: sportStats[sport].rankingPoints,
     };
   }
 
@@ -420,10 +448,15 @@ export async function getRankings(sport = 'overall', db = defaultDb, rules = def
       .sort((a, b) => {
         const ca = a.sports.cricket;
         const cb = b.sports.cricket;
+        if (cb.rankingPoints !== ca.rankingPoints) return cb.rankingPoints - ca.rankingPoints;
         if (cb.wins !== ca.wins) return cb.wins - ca.wins;
-        if (cb.batting.runs !== ca.batting.runs) return cb.batting.runs - ca.batting.runs;
-        if (cb.bowling.wickets !== ca.bowling.wickets) return cb.bowling.wickets - ca.bowling.wickets;
-        return cb.winPercentage - ca.winPercentage;
+        if ((cb.bowling?.wickets || 0) !== (ca.bowling?.wickets || 0)) {
+          return (cb.bowling?.wickets || 0) - (ca.bowling?.wickets || 0);
+        }
+        if ((cb.batting?.runs || 0) !== (ca.batting?.runs || 0)) {
+          return (cb.batting?.runs || 0) - (ca.batting?.runs || 0);
+        }
+        return cb.matches - ca.matches;
       });
   } else if (sport === 'volleyball') {
     sorted = playerStatsList
@@ -431,8 +464,9 @@ export async function getRankings(sport = 'overall', db = defaultDb, rules = def
       .sort((a, b) => {
         const va = a.sports.volleyball;
         const vb = b.sports.volleyball;
+        if (vb.rankingPoints !== va.rankingPoints) return vb.rankingPoints - va.rankingPoints;
         if (vb.wins !== va.wins) return vb.wins - va.wins;
-        return vb.winPercentage - va.winPercentage;
+        return vb.matches - va.matches;
       });
   } else if (sport === 'badminton') {
     sorted = playerStatsList
@@ -440,8 +474,9 @@ export async function getRankings(sport = 'overall', db = defaultDb, rules = def
       .sort((a, b) => {
         const ba = a.sports.badminton;
         const bb = b.sports.badminton;
+        if (bb.rankingPoints !== ba.rankingPoints) return bb.rankingPoints - ba.rankingPoints;
         if (bb.wins !== ba.wins) return bb.wins - ba.wins;
-        return bb.winPercentage - ba.winPercentage;
+        return bb.matches - ba.matches;
       });
   } else {
     // Overall
@@ -450,24 +485,32 @@ export async function getRankings(sport = 'overall', db = defaultDb, rules = def
       .sort((a, b) => {
         if (b.rankingPoints !== a.rankingPoints) return b.rankingPoints - a.rankingPoints;
         if (b.totalWins !== a.totalWins) return b.totalWins - a.totalWins;
-        if (b.winPercentage !== a.winPercentage) return b.winPercentage - a.winPercentage;
+        if (b.totalWickets !== a.totalWickets) return b.totalWickets - a.totalWickets;
+        if (b.totalRuns !== a.totalRuns) return b.totalRuns - a.totalRuns;
         return b.totalMatches - a.totalMatches;
       });
   }
 
   // Assign rank numbers
-  const rankings = sorted.map((s, idx) => ({
-    rank: idx + 1,
-    playerId: s.playerId,
-    player: s.player,
-    matches: sport === 'overall' ? s.totalMatches : s.sports[sport]?.matches || 0,
-    wins: sport === 'overall' ? s.totalWins : s.sports[sport]?.wins || 0,
-    losses: sport === 'overall' ? s.totalLosses : s.sports[sport]?.losses || 0,
-    winPercentage: sport === 'overall' ? s.winPercentage : s.sports[sport]?.winPercentage || 0,
-    rankingPoints: s.rankingPoints,
-    streaks: s.streaks,
-    sportStats: sport !== 'overall' ? s.sports[sport] : undefined,
-  }));
+  const rankings = sorted.map((s, idx) => {
+    const isOverall = sport === 'overall';
+    const sStat = s.sports[sport];
+    return {
+      rank: idx + 1,
+      playerId: s.playerId,
+      player: s.player,
+      matches: isOverall ? s.totalMatches : sStat?.matches || 0,
+      wins: isOverall ? s.totalWins : sStat?.wins || 0,
+      losses: isOverall ? s.totalLosses : sStat?.losses || 0,
+      ties: isOverall ? s.totalTies : sStat?.ties || 0,
+      runs: isOverall ? s.totalRuns : sStat?.batting?.runs || 0,
+      wickets: isOverall ? s.totalWickets : sStat?.bowling?.wickets || 0,
+      winPercentage: isOverall ? s.winPercentage : sStat?.winPercentage || 0,
+      rankingPoints: isOverall ? s.rankingPoints : sStat?.rankingPoints || 0,
+      streaks: s.streaks,
+      sportStats: !isOverall ? sStat : s.sports,
+    };
+  });
 
   return {
     sport,

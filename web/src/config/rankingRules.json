@@ -1,8 +1,10 @@
 {
   "overall_ranking": {
-    "win_weight": 3,
-    "loss_weight": 0,
-    "participation_weight": 0.1
+    "win_weight": 10,
+    "loss_weight": 2,
+    "tie_weight": 5,
+    "run_weight": 1,
+    "wicket_weight": 5
   },
   "streak_reset_on": "loss",
   "cricket_stats": {

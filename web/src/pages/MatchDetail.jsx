@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { matchesApi, playersApi, cricketApi, ledgerApi } from '../services/api';
 import { LoadingSpinner, ErrorState, ConfirmDialog } from '../components/ui';
+import { downloadScoreboardImage } from '../services/scoreboardGenerator';
 
 const SPORT_EMOJI = { cricket: '🏏', volleyball: '🏐', badminton: '🏸' };
 const STATUS_CLASS = {
@@ -129,6 +130,36 @@ export default function MatchDetail() {
     }
   };
 
+  const handlePlayAgain = () => {
+    const teamAPlayerIds = teamA?.players?.map((p) => p.player_id) || [];
+    const teamBPlayerIds = teamB?.players?.map((p) => p.player_id) || [];
+
+    let oversLimit = 5;
+    if (match.sport === 'cricket' && cricketScorecard?.innings?.length > 0) {
+      oversLimit = cricketScorecard.innings[0].oversLimit || cricketScorecard.innings[0].innings?.overs_limit || 5;
+    }
+
+    navigate('/matches/new', {
+      state: {
+        playAgain: true,
+        sport: match.sport,
+        cricketFormat: match.cricket_format || 'limited_overs',
+        oversLimit,
+        teamA: teamAPlayerIds,
+        teamB: teamBPlayerIds,
+      },
+    });
+  };
+
+  const handleDownloadScoreboard = () => {
+    downloadScoreboardImage({
+      match,
+      scorecard: cricketScorecard,
+      settlement: ledgerSettlement,
+      allPlayers,
+    });
+  };
+
   const selectedInnScorecard = cricketScorecard?.innings.find(
     (i) => i.innings.innings_number === scorecardTab
   );
@@ -191,10 +222,19 @@ export default function MatchDetail() {
 
           {/* Player of Match */}
           {pomPlayerObj && (
-            <div id="player-of-match" className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-2 text-sm">
-              <span>⭐</span>
-              <span className="text-amber-300 font-semibold">Player of the Match:</span>
-              <span className="text-white">{pomPlayerObj.name}</span>
+            <div id="player-of-match" className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">⭐</span>
+                <div>
+                  <span className="text-amber-300 font-bold block sm:inline mr-2">Man of the Match:</span>
+                  <span className="text-white font-semibold text-base">{pomPlayerObj.name}</span>
+                </div>
+              </div>
+              {cricketScorecard?.mvpDetails?.mvpScores?.find((s) => s.playerId === pomPlayerObj.id) && (
+                <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  +{cricketScorecard.mvpDetails.mvpScores.find((s) => s.playerId === pomPlayerObj.id).totalPoints} MVP Pts
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -460,6 +500,28 @@ export default function MatchDetail() {
 
         {/* Match actions */}
         <div className="space-y-4">
+          {/* Completed Match Actions: Download Scoreboard & Play Again */}
+          {match.status === 'completed' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                id="btn-download-scoreboard"
+                type="button"
+                onClick={handleDownloadScoreboard}
+                className="btn-secondary btn w-full flex items-center justify-center gap-2 py-3"
+              >
+                <span>📥</span> Download Scoreboard
+              </button>
+              <button
+                id="btn-play-again"
+                type="button"
+                onClick={handlePlayAgain}
+                className="btn-primary btn w-full flex items-center justify-center gap-2 py-3"
+              >
+                <span>🔄</span> Play Again
+              </button>
+            </div>
+          )}
+
           {/* Enter result / score */}
           {match.status === 'live' && (
             <Link
