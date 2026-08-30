@@ -4,6 +4,7 @@ const navItems = [
   { to: '/', label: 'Dashboard', id: 'nav-dashboard' },
   { to: '/matches', label: 'Matches', id: 'nav-matches' },
   { to: '/players', label: 'Players', id: 'nav-players' },
+  { to: '/ledger', label: 'Ledger', id: 'nav-ledger' },
 ];
 
 export default function Navbar() {

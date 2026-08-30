@@ -263,7 +263,11 @@ export async function enterResult(matchId, data, db = defaultDb) {
   const teams = await db.teams.where('match_id').equals(matchId).toArray();
   const teamIds = new Set(teams.map((t) => t.id));
 
-  if (!teamIds.has(data.winning_team_id)) {
+  if (
+    data.winning_team_id !== null &&
+    data.winning_team_id !== undefined &&
+    !teamIds.has(data.winning_team_id)
+  ) {
     throw new ResultValidationError(
       `winning_team_id '${data.winning_team_id}' is not a team in match '${matchId}'.`
     );

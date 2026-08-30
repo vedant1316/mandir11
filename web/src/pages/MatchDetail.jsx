@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { matchesApi, playersApi, cricketApi } from '../services/api';
+import { matchesApi, playersApi, cricketApi, ledgerApi } from '../services/api';
 import { LoadingSpinner, ErrorState, ConfirmDialog } from '../components/ui';
 
 const SPORT_EMOJI = { cricket: '🏏', volleyball: '🏐', badminton: '🏸' };
@@ -24,6 +24,7 @@ export default function MatchDetail() {
 
   const [match, setMatch] = useState(null);
   const [cricketScorecard, setCricketScorecard] = useState(null);
+  const [ledgerSettlement, setLedgerSettlement] = useState(null);
   const [allPlayers, setAllPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -38,13 +39,15 @@ export default function MatchDetail() {
     setLoading(true);
     setError(null);
     try {
-      const [matchRes, playersRes] = await Promise.all([
+      const [matchRes, playersRes, settlementRes] = await Promise.all([
         matchesApi.get(matchId),
         playersApi.list(false),
+        ledgerApi.calculateSettlement(matchId),
       ]);
       const m = matchRes.data;
       setMatch(m);
       setAllPlayers(playersRes.data.players);
+      setLedgerSettlement(settlementRes.data);
 
       if (m.sport === 'cricket') {
         const scRes = await cricketApi.getMatchScorecard(matchId);
@@ -203,6 +206,107 @@ export default function MatchDetail() {
             cricketInnings={cricketScorecard?.innings.find((i) => i.battingTeam?.label === 'Team B')}
           />
         </div>
+
+        {/* ── Money Ledger & Settlement Card ────────────────────── */}
+        {ledgerSettlement && ledgerSettlement.hasStakes && (
+          <div id="match-ledger-card" className="card p-5 mb-6 space-y-4 border-surface-600 bg-surface-800">
+            <div className="flex items-center justify-between pb-3 border-b border-surface-600/50">
+              <h3 className="section-title text-base flex items-center gap-2">
+                <span>💰</span> Match Stakes & Settlement
+              </h3>
+              <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-brand-500/15 text-brand-300 border border-brand-500/30">
+                ₹{ledgerSettlement.totalPool} Pool
+              </span>
+            </div>
+
+            {/* If match is completed with settled payments */}
+            {ledgerSettlement.isSettled && !ledgerSettlement.isAbandoned && !ledgerSettlement.isTie && (
+              <div className="space-y-4">
+                {/* Payments list */}
+                <div>
+                  <h4 className="text-xs uppercase font-bold text-gray-400 mb-2">
+                    Settlement Payments ({ledgerSettlement.payments.length})
+                  </h4>
+                  <div className="space-y-2">
+                    {ledgerSettlement.payments.map((p, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-red-400 font-semibold">{p.fromPlayer.name}</span>
+                          <span className="text-gray-400">owes</span>
+                          <span className="text-emerald-400 font-bold">{p.toPlayer.name}</span>
+                        </div>
+                        <span className="text-base font-black text-white">₹{p.amount}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Participant net breakdown */}
+                <div>
+                  <h4 className="text-xs uppercase font-bold text-gray-400 mb-2">
+                    Participant Net Balances
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {ledgerSettlement.playerBalances.map((pb) => (
+                      <div
+                        key={pb.player.id}
+                        className={`p-2.5 rounded-xl border text-xs flex items-center justify-between ${
+                          pb.netAmount > 0
+                            ? 'bg-emerald-500/10 border-emerald-500/30'
+                            : 'bg-red-500/10 border-red-500/30'
+                        }`}
+                      >
+                        <div>
+                          <p className="font-bold text-white">{pb.player.name}</p>
+                          <p className="text-[10px] text-gray-400">{pb.teamLabel} · Stake ₹{pb.stakeAmount}</p>
+                        </div>
+                        <span className={`font-black text-sm ${pb.netAmount > 0 ? 'text-emerald-300' : 'text-red-400'}`}>
+                          {pb.netAmount > 0 ? `+₹${pb.netAmount}` : `-₹${Math.abs(pb.netAmount)}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* If abandoned */}
+            {ledgerSettlement.isAbandoned && (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
+                ⚠️ Match abandoned — all stakes refunded, no payments due.
+              </div>
+            )}
+
+            {/* If tie */}
+            {ledgerSettlement.isTie && (
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300">
+                🤝 Match tied — all stakes refunded, no payments due.
+              </div>
+            )}
+
+            {/* If live or upcoming */}
+            {!ledgerSettlement.isSettled && (
+              <div>
+                <h4 className="text-xs uppercase font-bold text-gray-400 mb-2">
+                  Committed Stakes ({ledgerSettlement.entries.length})
+                </h4>
+                <div className="space-y-1.5">
+                  {ledgerSettlement.entries.map((e, idx) => (
+                    <div key={idx} className="p-2.5 rounded-xl bg-surface-700 text-xs flex items-center justify-between">
+                      <span className="text-gray-300">
+                        {e.player_a?.name} <span className="text-gray-500 font-bold">vs</span> {e.player_b?.name}
+                      </span>
+                      <span className="font-bold text-white">₹{e.amount}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Cricket Scorecard Details ──────────────────────────── */}
         {match.sport === 'cricket' && cricketScorecard && cricketScorecard.innings.length > 0 && (

@@ -1,14 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { matchesApi, playersApi, cricketApi } from '../services/api';
+import { matchesApi, playersApi, cricketApi, ledgerApi } from '../services/api';
 import PlayerBadge from '../components/PlayerBadge';
 
 const STEPS = [
   { id: 1, label: 'Sport' },
   { id: 2, label: 'Players' },
   { id: 3, label: 'Teams' },
-  { id: 4, label: 'Review' },
-  { id: 5, label: 'Match' },
+  { id: 4, label: 'Stakes' },
+  { id: 5, label: 'Review' },
+  { id: 6, label: 'Match' },
 ];
 
 const SPORTS = [
@@ -32,6 +33,13 @@ export default function QuickMatch() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Stakes / Ledger state
+  const [stakePairs, setStakePairs] = useState([]); // [{ id, playerAId, playerBId, amount }]
+  const [selectedStakePlayerA, setSelectedStakePlayerA] = useState('');
+  const [selectedStakePlayerB, setSelectedStakePlayerB] = useState('');
+  const [stakeAmountInput, setStakeAmountInput] = useState('50');
+  const [stakeError, setStakeError] = useState(null);
+
   // Cricket specific settings
   const [oversLimit, setOversLimit] = useState(5);
   const [battingFirstTeam, setBattingFirstTeam] = useState('A'); // 'A' | 'B'
@@ -52,9 +60,17 @@ export default function QuickMatch() {
     }
   }, [step]);
 
-  // Pre-select opening batter and bowler when entering Step 4
+  // Pre-select defaults when reaching Stakes or Review
   useEffect(() => {
-    if (step === 4 && sport === 'cricket') {
+    if (step === 4) {
+      if (teamA.length > 0 && !selectedStakePlayerA) {
+        setSelectedStakePlayerA(teamA[0]);
+      }
+      if (teamB.length > 0 && !selectedStakePlayerB) {
+        setSelectedStakePlayerB(teamB[0]);
+      }
+    }
+    if (step === 5 && sport === 'cricket') {
       const battingPlayerIds = battingFirstTeam === 'A' ? teamA : teamB;
       const bowlingPlayerIds = battingFirstTeam === 'A' ? teamB : teamA;
       if (battingPlayerIds.length > 0 && !openingBatterId) {
@@ -64,7 +80,7 @@ export default function QuickMatch() {
         setOpeningBowlerId(bowlingPlayerIds[0]);
       }
     }
-  }, [step, sport, battingFirstTeam, teamA, teamB, openingBatterId, openingBowlerId]);
+  }, [step, sport, battingFirstTeam, teamA, teamB, openingBatterId, openingBowlerId, selectedStakePlayerA, selectedStakePlayerB]);
 
   const togglePlayerSelect = (pid) => {
     setSelectedPlayerIds((prev) => {
@@ -93,6 +109,7 @@ export default function QuickMatch() {
   const removeFromTeam = (pid) => {
     setTeamA((a) => a.filter((id) => id !== pid));
     setTeamB((b) => b.filter((id) => id !== pid));
+    setStakePairs((pairs) => pairs.filter((p) => p.playerAId !== pid && p.playerBId !== pid));
   };
 
   const selectedPlayers = allPlayers.filter((p) => selectedPlayerIds.has(p.id));
@@ -132,6 +149,50 @@ export default function QuickMatch() {
     setStep(4);
   };
 
+  // ── Stakes management ──────────────────────────────────────────
+
+  const totalStakeA = stakePairs.reduce((sum, p) => sum + p.amount, 0);
+  const totalStakeB = stakePairs.reduce((sum, p) => sum + p.amount, 0);
+  const totalPool = totalStakeA + totalStakeB;
+  const isStakesBalanced = totalStakeA === totalStakeB;
+
+  const handleAddStakePair = () => {
+    setStakeError(null);
+    const amountNum = parseFloat(stakeAmountInput);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      setStakeError('Please enter a valid positive stake amount.');
+      return;
+    }
+    if (!selectedStakePlayerA || !selectedStakePlayerB) {
+      setStakeError('Select one player from Team A and one player from Team B.');
+      return;
+    }
+
+    const newPair = {
+      id: 'stake_' + Math.random().toString(36).substr(2, 9),
+      playerAId: selectedStakePlayerA,
+      playerBId: selectedStakePlayerB,
+      amount: amountNum,
+    };
+
+    setStakePairs((prev) => [...prev, newPair]);
+  };
+
+  const handleRemoveStakePair = (pairId) => {
+    setStakePairs((prev) => prev.filter((p) => p.id !== pairId));
+  };
+
+  const handleStakesNext = () => {
+    if (!isStakesBalanced) {
+      setStakeError('Total stakes on Team A must equal total stakes on Team B.');
+      return;
+    }
+    setStakeError(null);
+    setStep(5);
+  };
+
+  // ── Create & Start Match ───────────────────────────────────────
+
   const handleCreateMatch = async () => {
     setLoading(true);
     setError(null);
@@ -143,6 +204,16 @@ export default function QuickMatch() {
         { label: 'Team A', player_ids: teamA },
         { label: 'Team B', player_ids: teamB },
       ]);
+
+      // Save match stakes / ledger entries if any
+      if (stakePairs.length > 0) {
+        const formattedEntries = stakePairs.map((p) => ({
+          player_a_id: p.playerAId,
+          player_b_id: p.playerBId,
+          amount: p.amount,
+        }));
+        await ledgerApi.setMatchLedger(mid, formattedEntries);
+      }
 
       const startRes = await matchesApi.start(mid);
       setMatchId(mid);
@@ -168,7 +239,7 @@ export default function QuickMatch() {
         return;
       }
 
-      setStep(5);
+      setStep(6);
     } catch (err) {
       setError(err.response?.data?.detail || err.message || 'Failed to create match.');
     } finally {
@@ -187,7 +258,7 @@ export default function QuickMatch() {
   // ── Render ─────────────────────────────────────────────────────
 
   return (
-    <div className="page">
+    <div className="page pb-16">
       <div className="container-app max-w-2xl">
         {/* Page title */}
         <div className="mb-8">
@@ -217,7 +288,7 @@ export default function QuickMatch() {
               </div>
               {i < STEPS.length - 1 && (
                 <div
-                  className={`h-0.5 w-8 sm:w-12 mt-[-1rem] ${
+                  className={`h-0.5 w-6 sm:w-10 mt-[-1rem] ${
                     step > s.id ? 'bg-brand-500' : 'bg-surface-600'
                   }`}
                 />
@@ -361,14 +432,191 @@ export default function QuickMatch() {
                 disabled={teamA.length === 0 || teamB.length === 0}
                 className="btn-primary btn"
               >
-                Review →
+                Set Stakes →
               </button>
             </div>
           </div>
         )}
 
-        {/* ─── Step 4: Review & Cricket Settings ─────────────────── */}
+        {/* ─── Step 4: Stakes (Money Ledger) ────────────────────── */}
         {step === 4 && (
+          <div id="step-stakes" className="animate-slide-up space-y-6">
+            <div>
+              <h2 className="section-title flex items-center gap-2">
+                <span>💰</span> Match Ledger & Stakes
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                Optional: Record peer-to-peer match stakes. Equal amounts will be matched between teams.
+              </p>
+            </div>
+
+            {stakeError && (
+              <div id="stake-error" className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400">
+                {stakeError}
+              </div>
+            )}
+
+            {/* Total Stakes Pool Header */}
+            <div className="card p-4 bg-gradient-to-br from-surface-800 to-surface-900 border-surface-600">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold text-gray-400">Total Match Pool</span>
+                <span className={`text-xs px-2.5 py-1 rounded-full font-bold ${
+                  stakePairs.length === 0
+                    ? 'bg-surface-700 text-gray-400'
+                    : isStakesBalanced
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                    : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                }`}>
+                  {stakePairs.length === 0 ? 'No Stakes (Casual)' : isStakesBalanced ? '✓ Balanced' : '⚠️ Unbalanced'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-center">
+                <div className="p-3 rounded-xl bg-brand-500/10 border border-brand-500/30">
+                  <p className="text-[11px] text-brand-300 font-semibold mb-0.5">Team A Total</p>
+                  <p className="text-2xl font-black text-white">₹{totalStakeA}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                  <p className="text-[11px] text-amber-400 font-semibold mb-0.5">Team B Total</p>
+                  <p className="text-2xl font-black text-white">₹{totalStakeB}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Add Stake Pair Card */}
+            <div className="card p-5 space-y-4">
+              <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <span>➕</span> Add Matchup Stake
+              </h3>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label text-brand-300">Team A Player</label>
+                  <select
+                    id="select-stake-a"
+                    className="input text-xs"
+                    value={selectedStakePlayerA}
+                    onChange={(e) => setSelectedStakePlayerA(e.target.value)}
+                  >
+                    {teamA.map((pid) => (
+                      <option key={pid} value={pid}>
+                        {getPlayer(pid)?.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="label text-amber-400">Team B Player</label>
+                  <select
+                    id="select-stake-b"
+                    className="input text-xs"
+                    value={selectedStakePlayerB}
+                    onChange={(e) => setSelectedStakePlayerB(e.target.value)}
+                  >
+                    {teamB.map((pid) => (
+                      <option key={pid} value={pid}>
+                        {getPlayer(pid)?.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="label">Amount (₹)</label>
+                <div className="flex gap-2 items-center mb-2">
+                  {[20, 50, 100, 200, 500].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setStakeAmountInput(amt.toString())}
+                      className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+                        stakeAmountInput === amt.toString()
+                          ? 'bg-brand-500 border-brand-400 text-white'
+                          : 'bg-surface-700 border-surface-600 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      ₹{amt}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  id="input-stake-amount"
+                  type="number"
+                  min="1"
+                  className="input text-sm"
+                  placeholder="Custom amount"
+                  value={stakeAmountInput}
+                  onChange={(e) => setStakeAmountInput(e.target.value)}
+                />
+              </div>
+
+              <button
+                id="btn-add-stake-pair"
+                type="button"
+                onClick={handleAddStakePair}
+                className="btn-secondary btn w-full"
+              >
+                + Add Stake Matchup
+              </button>
+            </div>
+
+            {/* List of Matched Stakes */}
+            {stakePairs.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-xs uppercase font-bold text-gray-400 tracking-wider">
+                  Matched Stakes ({stakePairs.length})
+                </h4>
+                <div className="space-y-2">
+                  {stakePairs.map((pair) => (
+                    <div
+                      key={pair.id}
+                      className="card p-3 flex items-center justify-between text-xs bg-surface-800"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="font-semibold text-brand-300">
+                          {getPlayer(pair.playerAId)?.name}
+                        </span>
+                        <span className="text-gray-500 font-bold">vs</span>
+                        <span className="font-semibold text-amber-400">
+                          {getPlayer(pair.playerBId)?.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-white text-sm">₹{pair.amount}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveStakePair(pair.id)}
+                          className="text-gray-500 hover:text-red-400 font-bold"
+                          title="Remove"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 justify-between pt-2">
+              <button id="step4-back" onClick={() => setStep(3)} className="btn-secondary btn">
+                ← Back
+              </button>
+              <button
+                id="step4-next"
+                onClick={handleStakesNext}
+                className="btn-primary btn"
+              >
+                Review Setup →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Step 5: Review & Match Settings ───────────────────── */}
+        {step === 5 && (
           <div id="step-review" className="animate-slide-up space-y-6">
             <h2 className="section-title">Review Match Setup</h2>
 
@@ -409,6 +657,16 @@ export default function QuickMatch() {
                       </li>
                     ))}
                   </ul>
+                </div>
+              </div>
+
+              {/* Stakes summary in review */}
+              <div className="pt-3 border-t border-surface-600/50">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-400">Match Stakes:</span>
+                  <span className="font-bold text-white">
+                    {stakePairs.length > 0 ? `₹${totalPool} Pool (₹${totalStakeA} / team)` : 'No Stakes (₹0)'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -519,9 +777,11 @@ export default function QuickMatch() {
             )}
 
             <div className="flex gap-3 justify-between">
-              <button id="step4-back" onClick={() => setStep(3)} className="btn-secondary btn">← Edit</button>
+              <button id="step5-back" onClick={() => setStep(4)} className="btn-secondary btn">
+                ← Edit Stakes
+              </button>
               <button
-                id="step4-start"
+                id="step5-start"
                 onClick={handleCreateMatch}
                 disabled={loading}
                 className="btn-primary btn btn-lg"
@@ -532,8 +792,8 @@ export default function QuickMatch() {
           </div>
         )}
 
-        {/* ─── Step 5: Match started (Volleyball / Badminton) ─────── */}
-        {step === 5 && matchData && (
+        {/* ─── Step 6: Match started (Volleyball / Badminton) ─────── */}
+        {step === 6 && matchData && (
           <div id="step-live" className="animate-slide-up text-center py-8">
             <div className="text-6xl mb-4">🏁</div>
             <h2 className="text-2xl font-black text-white mb-2">Match is Live!</h2>

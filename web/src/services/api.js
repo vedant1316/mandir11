@@ -1,6 +1,7 @@
 import { playerService } from './playerService';
 import * as matchEngine from '../engines/matchEngine';
 import * as cricketScorer from '../engines/cricketScorer';
+import * as ledgerEngine from '../engines/ledgerEngine';
 
 // ─── Local-First Auth (No-op / Open Access) ───────────────────────────────────
 
@@ -116,10 +117,37 @@ export const cricketApi = {
   },
 };
 
+// ─── Ledger API (Local-First Adapter) ─────────────────────────────────────────
+
+export const ledgerApi = {
+  setMatchLedger: async (matchId, entries) => {
+    const data = await ledgerEngine.setMatchLedger(matchId, entries);
+    return { data };
+  },
+  getMatchLedger: async (matchId) => {
+    const data = await ledgerEngine.getMatchLedger(matchId);
+    return { data };
+  },
+  calculateSettlement: async (matchId) => {
+    const data = await ledgerEngine.calculateMatchSettlement(matchId);
+    return { data };
+  },
+  getPlayerHistory: async (playerId) => {
+    const data = await ledgerEngine.getPlayerLedgerHistory(playerId);
+    return { data };
+  },
+  getColonySummary: async () => {
+    const data = await ledgerEngine.getColonyLedgerSummary();
+    return { data };
+  },
+};
+
 export default {
   players: playersApi,
   matches: matchesApi,
   cricket: cricketApi,
+  ledger: ledgerApi,
   auth: authApi,
 };
+
 

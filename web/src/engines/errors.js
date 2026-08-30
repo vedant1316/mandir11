@@ -74,3 +74,32 @@ export class InvalidDeliveryError extends CricketScorerError {
   }
 }
 
+export class LedgerError extends MatchEngineError {
+  constructor(detail = 'Ledger error.', statusCode = 400) {
+    super(detail, statusCode);
+    this.name = 'LedgerError';
+  }
+}
+
+export class UnbalancedStakesError extends LedgerError {
+  constructor(detail = 'Total stakes on Team A must equal total stakes on Team B.') {
+    super(detail, 422);
+    this.name = 'UnbalancedStakesError';
+  }
+}
+
+export class InvalidStakeAmountError extends LedgerError {
+  constructor(detail = 'Stake amount must be a positive number greater than zero.') {
+    super(detail, 422);
+    this.name = 'InvalidStakeAmountError';
+  }
+}
+
+export class InvalidStakeParticipantError extends LedgerError {
+  constructor(detail = 'Stake participants must be assigned to opposing teams.') {
+    super(detail, 422);
+    this.name = 'InvalidStakeParticipantError';
+  }
+}
+
+
