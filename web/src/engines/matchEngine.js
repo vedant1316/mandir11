@@ -90,6 +90,7 @@ export async function createMatch(data, db = defaultDb) {
   const matchRecord = {
     id: matchId,
     sport: data.sport,
+    cricket_format: data.cricket_format || (data.sport === 'cricket' ? 'limited_overs' : null),
     status: 'upcoming',
     date: dateStr,
     tournament_id: data.tournament_id || null,

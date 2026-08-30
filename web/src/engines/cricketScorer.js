@@ -57,7 +57,7 @@ export async function initInnings(
     matchId,
     battingTeamId,
     inningsNumber = 1,
-    oversLimit = 5,
+    oversLimit = null,
     openingBatterId = null,
     openingBowlerId = null,
   },
@@ -108,16 +108,19 @@ export async function initInnings(
 
   const inningsId = generateId();
   const now = new Date().toISOString();
+  const isTest = match.cricket_format === 'test' || match.format === 'test';
+  const effectiveOversLimit = isTest ? (oversLimit ? parseInt(oversLimit, 10) : 9999) : (parseInt(oversLimit, 10) || 5);
 
   const inningsRecord = {
     id: inningsId,
     match_id: matchId,
     batting_team_id: battingTeamId,
     innings_number: inningsNumber,
-    overs_limit: parseInt(oversLimit, 10) || 5,
+    overs_limit: effectiveOversLimit,
     total_runs: 0,
     total_wickets: 0,
     is_closed: false,
+    is_declared: false,
     current_batter_id: selectedBatterId,
     current_bowler_id: selectedBowlerId || null,
     created_at: now,
@@ -317,43 +320,92 @@ export async function recordBall(
   let winningTeamId = null;
   let matchEndReason = null;
 
+  const isTest = match.cricket_format === 'test' || match.format === 'test';
+
   // Check if all out
   if (isAllOut) {
     shouldCloseInnings = true;
   }
 
-  // Check overs limit
-  const maxLegalBalls = innings.overs_limit * 6;
-  if (totalLegalBallsInInnings >= maxLegalBalls) {
-    shouldCloseInnings = true;
-  }
-
-  // 2nd Innings Target & Chase Logic
-  if (innings.innings_number === 2) {
-    const innings1 = await db.innings
-      .where('match_id')
-      .equals(matchId)
-      .filter((inn) => inn.innings_number === 1)
-      .first();
-
-    const targetRuns = (innings1?.total_runs ?? 0) + 1;
-
-    if (newTotalRuns >= targetRuns) {
-      // Chasing team won!
+  // Check overs limit (for limited overs)
+  if (!isTest) {
+    const maxLegalBalls = innings.overs_limit * 6;
+    if (totalLegalBallsInInnings >= maxLegalBalls) {
       shouldCloseInnings = true;
-      matchCompleted = true;
-      winningTeamId = innings.batting_team_id;
-      matchEndReason = 'completed';
-    } else if (shouldCloseInnings) {
-      // 2nd innings ended (all out or overs finished) without reaching target
-      matchCompleted = true;
-      matchEndReason = 'completed';
-      if (newTotalRuns === (innings1?.total_runs ?? 0)) {
-        // Tied match
-        winningTeamId = null;
-      } else {
-        // 1st batting team won
-        winningTeamId = innings1.batting_team_id;
+    }
+
+    // 2nd Innings Target & Chase Logic
+    if (innings.innings_number === 2) {
+      const innings1 = await db.innings
+        .where('match_id')
+        .equals(matchId)
+        .filter((inn) => inn.innings_number === 1)
+        .first();
+
+      const targetRuns = (innings1?.total_runs ?? 0) + 1;
+
+      if (newTotalRuns >= targetRuns) {
+        // Chasing team won!
+        shouldCloseInnings = true;
+        matchCompleted = true;
+        winningTeamId = innings.batting_team_id;
+        matchEndReason = 'completed';
+      } else if (shouldCloseInnings) {
+        // 2nd innings ended (all out or overs finished) without reaching target
+        matchCompleted = true;
+        matchEndReason = 'completed';
+        if (newTotalRuns === (innings1?.total_runs ?? 0)) {
+          // Tied match
+          winningTeamId = null;
+        } else {
+          // 1st batting team won
+          winningTeamId = innings1.batting_team_id;
+        }
+      }
+    }
+  } else {
+    // ─── Test Match Logic ─────────────────────────────────────────
+    if (innings.innings_number === 3 && shouldCloseInnings) {
+      // Innings defeat check:
+      // Innings 1 (Team A), Innings 2 (Team B), Innings 3 (Team A)
+      const allInns = await db.innings.where('match_id').equals(matchId).toArray();
+      const inn1 = allInns.find((i) => i.innings_number === 1);
+      const inn2 = allInns.find((i) => i.innings_number === 2);
+      const teamATotal = (inn1?.total_runs ?? 0) + newTotalRuns;
+      const teamBTotal = inn2?.total_runs ?? 0;
+
+      if (teamATotal <= teamBTotal) {
+        // Team B won by an innings!
+        matchCompleted = true;
+        winningTeamId = inn2.batting_team_id;
+        matchEndReason = 'completed';
+      }
+    } else if (innings.innings_number === 4) {
+      // 4th Innings Chase:
+      const allInns = await db.innings.where('match_id').equals(matchId).toArray();
+      const inn1 = allInns.find((i) => i.innings_number === 1);
+      const inn2 = allInns.find((i) => i.innings_number === 2);
+      const inn3 = allInns.find((i) => i.innings_number === 3);
+
+      const teamATotal = (inn1?.total_runs ?? 0) + (inn3?.total_runs ?? 0);
+      const teamBInn1 = inn2?.total_runs ?? 0;
+      const targetRuns = (teamATotal - teamBInn1) + 1;
+
+      if (newTotalRuns >= targetRuns) {
+        // Team B chased down target in 4th innings!
+        shouldCloseInnings = true;
+        matchCompleted = true;
+        winningTeamId = innings.batting_team_id;
+        matchEndReason = 'completed';
+      } else if (shouldCloseInnings) {
+        // 4th innings ended (all out)
+        matchCompleted = true;
+        matchEndReason = 'completed';
+        if (newTotalRuns === targetRuns - 1) {
+          winningTeamId = null; // Tie!
+        } else if (newTotalRuns < targetRuns - 1) {
+          winningTeamId = inn1.batting_team_id; // Team A won by runs!
+        }
       }
     }
   }
@@ -380,18 +432,29 @@ export async function recordBall(
     const allInnings = await db.innings.where('match_id').equals(matchId).toArray();
     const inn1 = allInnings.find((i) => i.innings_number === 1);
     const inn2 = allInnings.find((i) => i.innings_number === 2);
+    const inn3 = allInnings.find((i) => i.innings_number === 3);
+    const inn4 = allInnings.find((i) => i.innings_number === 4);
 
     let scoreA = null;
     let scoreB = null;
 
-    if (inn1 && inn2) {
-      if (inn1.batting_team_id === teamA?.id) {
-        scoreA = inn1.total_runs;
-        scoreB = inn2.total_runs;
-      } else {
-        scoreA = inn2.total_runs;
-        scoreB = inn1.total_runs;
+    if (!isTest) {
+      if (inn1 && inn2) {
+        if (inn1.batting_team_id === teamA?.id) {
+          scoreA = inn1.total_runs;
+          scoreB = inn2.total_runs;
+        } else {
+          scoreA = inn2.total_runs;
+          scoreB = inn1.total_runs;
+        }
       }
+    } else {
+      // Test match aggregates
+      const teamAInnings = [inn1, inn3].filter((inn) => inn?.batting_team_id === teamA?.id);
+      const teamBInnings = [inn2, inn4].filter((inn) => inn?.batting_team_id !== teamA?.id);
+
+      scoreA = teamAInnings.reduce((acc, inn) => acc + (inn?.total_runs || 0), 0);
+      scoreB = teamBInnings.reduce((acc, inn) => acc + (inn?.total_runs || 0), 0);
     }
 
     const existingResult = await db.match_results.where('match_id').equals(matchId).first();
@@ -477,7 +540,7 @@ export async function startNextOver({ inningsId, bowlerId }, db = defaultDb) {
 }
 
 /**
- * Switch / Start 2nd innings
+ * Switch / Start Next innings (Supports Limited Overs 1..2 and Test Match 1..4)
  */
 export async function switchInnings(
   { matchId, nextBattingTeamId, openingBatterId = null, openingBowlerId = null },
@@ -490,35 +553,190 @@ export async function switchInnings(
     throw new MatchStateError(`Cannot switch innings on a ${match.status} match.`);
   }
 
-  const inn1 = await db.innings
-    .where('match_id')
-    .equals(matchId)
-    .filter((inn) => inn.innings_number === 1)
-    .first();
+  const isTest = match.cricket_format === 'test' || match.format === 'test';
+  const allInnings = await db.innings.where('match_id').equals(matchId).toArray();
+  allInnings.sort((a, b) => a.innings_number - b.innings_number);
 
-  if (!inn1) {
+  if (allInnings.length === 0) {
     throw new CricketScorerError('Innings 1 has not been created yet.');
   }
 
-  if (!inn1.is_closed) {
-    // Automatically close innings 1 if switching
-    await db.innings.update(inn1.id, { is_closed: true });
+  const latestInnings = allInnings[allInnings.length - 1];
+  if (!latestInnings.is_closed) {
+    // Automatically close previous innings if switching
+    await db.innings.update(latestInnings.id, { is_closed: true });
+  }
+
+  const maxInnings = isTest ? 4 : 2;
+  const nextInningsNumber = allInnings.length + 1;
+
+  if (nextInningsNumber > maxInnings) {
+    throw new CricketScorerError(`Match already reached maximum innings (${maxInnings}).`);
   }
 
   const teams = await db.teams.where('match_id').equals(matchId).toArray();
-  const targetBattingTeamId = nextBattingTeamId || teams.find((t) => t.id !== inn1.batting_team_id)?.id;
+  const targetBattingTeamId =
+    nextBattingTeamId || teams.find((t) => t.id !== latestInnings.batting_team_id)?.id;
 
   return initInnings(
     {
       matchId,
       battingTeamId: targetBattingTeamId,
-      inningsNumber: 2,
-      oversLimit: inn1.overs_limit,
+      inningsNumber: nextInningsNumber,
+      oversLimit: isTest ? null : allInnings[0].overs_limit,
       openingBatterId,
       openingBowlerId,
     },
     db
   );
+}
+
+/**
+ * Manually declare an innings in progress (Test match or casual match)
+ */
+export async function declareInnings({ matchId, inningsId }, db = defaultDb) {
+  const match = await db.matches.get(matchId);
+  if (!match) throw new MatchNotFoundError(`Match '${matchId}' not found.`);
+  if (match.status === 'completed' || match.status === 'abandoned') {
+    throw new MatchStateError(`Cannot declare on a ${match.status} match.`);
+  }
+
+  const innings = await db.innings.get(inningsId);
+  if (!innings) throw new CricketScorerError(`Innings '${inningsId}' not found.`, 404);
+  if (innings.is_closed) {
+    throw new InningsClosedError('Innings is already closed.');
+  }
+
+  await db.innings.update(inningsId, {
+    is_closed: true,
+    is_declared: true,
+  });
+
+  const isTest = match.cricket_format === 'test' || match.format === 'test';
+  let matchCompleted = false;
+  let winningTeamId = null;
+  let matchEndReason = null;
+
+  if (isTest) {
+    if (innings.innings_number === 3) {
+      // Innings defeat check
+      const allInns = await db.innings.where('match_id').equals(matchId).toArray();
+      const inn1 = allInns.find((i) => i.innings_number === 1);
+      const inn2 = allInns.find((i) => i.innings_number === 2);
+      const teamATotal = (inn1?.total_runs ?? 0) + innings.total_runs;
+      const teamBTotal = inn2?.total_runs ?? 0;
+
+      if (teamATotal <= teamBTotal) {
+        matchCompleted = true;
+        winningTeamId = inn2.batting_team_id;
+        matchEndReason = 'completed';
+      }
+    } else if (innings.innings_number === 4) {
+      const allInns = await db.innings.where('match_id').equals(matchId).toArray();
+      const inn1 = allInns.find((i) => i.innings_number === 1);
+      const inn2 = allInns.find((i) => i.innings_number === 2);
+      const inn3 = allInns.find((i) => i.innings_number === 3);
+
+      const teamATotal = (inn1?.total_runs ?? 0) + (inn3?.total_runs ?? 0);
+      const teamBInn1 = inn2?.total_runs ?? 0;
+      const targetRuns = (teamATotal - teamBInn1) + 1;
+
+      matchCompleted = true;
+      matchEndReason = 'completed';
+      if (innings.total_runs === targetRuns - 1) {
+        winningTeamId = null; // Tie
+      } else if (innings.total_runs < targetRuns - 1) {
+        winningTeamId = inn1.batting_team_id; // Team A
+      } else {
+        winningTeamId = innings.batting_team_id; // Team B
+      }
+    }
+  }
+
+  if (matchCompleted) {
+    await db.matches.update(matchId, {
+      status: 'completed',
+      end_reason: matchEndReason,
+    });
+
+    const teams = await db.teams.where('match_id').equals(matchId).toArray();
+    const teamA = teams.find((t) => t.label === 'Team A');
+
+    const allInns = await db.innings.where('match_id').equals(matchId).toArray();
+    const teamAInnings = allInns.filter((inn) => inn.batting_team_id === teamA?.id);
+    const teamBInnings = allInns.filter((inn) => inn.batting_team_id !== teamA?.id);
+
+    const scoreA = teamAInnings.reduce((acc, inn) => acc + (inn.total_runs || 0), 0);
+    const scoreB = teamBInnings.reduce((acc, inn) => acc + (inn.total_runs || 0), 0);
+
+    const existingResult = await db.match_results.where('match_id').equals(matchId).first();
+    if (existingResult) {
+      await db.match_results.update(existingResult.id, {
+        winning_team_id: winningTeamId,
+        team_a_score: scoreA,
+        team_b_score: scoreB,
+      });
+    } else {
+      await db.match_results.add({
+        id: generateId(),
+        match_id: matchId,
+        winning_team_id: winningTeamId,
+        team_a_score: scoreA,
+        team_b_score: scoreB,
+      });
+    }
+  }
+
+  return getInningsState(inningsId, db);
+}
+
+/**
+ * End match as Draw (e.g. Test match time expired or called off)
+ */
+export async function endMatchAsDraw(matchId, db = defaultDb) {
+  const match = await db.matches.get(matchId);
+  if (!match) throw new MatchNotFoundError(`Match '${matchId}' not found.`);
+
+  // Close any open innings
+  const allInns = await db.innings.where('match_id').equals(matchId).toArray();
+  for (const inn of allInns) {
+    if (!inn.is_closed) {
+      await db.innings.update(inn.id, { is_closed: true });
+    }
+  }
+
+  await db.matches.update(matchId, {
+    status: 'completed',
+    end_reason: 'draw',
+  });
+
+  const teams = await db.teams.where('match_id').equals(matchId).toArray();
+  const teamA = teams.find((t) => t.label === 'Team A');
+
+  const teamAInnings = allInns.filter((inn) => inn.batting_team_id === teamA?.id);
+  const teamBInnings = allInns.filter((inn) => inn.batting_team_id !== teamA?.id);
+
+  const scoreA = teamAInnings.reduce((acc, inn) => acc + (inn.total_runs || 0), 0);
+  const scoreB = teamBInnings.reduce((acc, inn) => acc + (inn.total_runs || 0), 0);
+
+  const existingResult = await db.match_results.where('match_id').equals(matchId).first();
+  if (existingResult) {
+    await db.match_results.update(existingResult.id, {
+      winning_team_id: null,
+      team_a_score: scoreA,
+      team_b_score: scoreB,
+    });
+  } else {
+    await db.match_results.add({
+      id: generateId(),
+      match_id: matchId,
+      winning_team_id: null,
+      team_a_score: scoreA,
+      team_b_score: scoreB,
+    });
+  }
+
+  return getMatchScorecard(matchId, db);
 }
 
 /**
@@ -863,30 +1081,93 @@ export async function getInningsState(inningsId, db = defaultDb) {
   const currentBowlerId = activeOver?.bowler_id || innings.current_bowler_id;
   const currentBowlerStats = currentBowlerId ? bowlingStats.get(currentBowlerId) || null : null;
 
-  // Chase / Target Info for 2nd Innings
+  // Chase / Target Info
   let targetInfo = null;
-  if (innings.innings_number === 2) {
-    const inn1 = await db.innings
-      .where('match_id')
-      .equals(innings.match_id)
-      .filter((inn) => inn.innings_number === 1)
-      .first();
+  const isTest = match?.cricket_format === 'test' || match?.format === 'test';
 
-    const targetRuns = (inn1?.total_runs ?? 0) + 1;
-    const runsNeeded = targetRuns - runningRuns;
-    const maxLegalBalls = innings.overs_limit * 6;
-    const ballsRemaining = Math.max(0, maxLegalBalls - runningLegalBalls);
-    const requiredRunRate = ballsRemaining > 0 ? parseFloat(((runsNeeded / ballsRemaining) * 6).toFixed(2)) : 0;
+  if (!isTest) {
+    if (innings.innings_number === 2) {
+      const inn1 = await db.innings
+        .where('match_id')
+        .equals(innings.match_id)
+        .filter((inn) => inn.innings_number === 1)
+        .first();
 
-    targetInfo = {
-      targetRuns,
-      runsNeeded,
-      ballsRemaining,
-      requiredRunRate,
-      inn1TotalRuns: inn1?.total_runs ?? 0,
-      inn1TotalWickets: inn1?.total_wickets ?? 0,
-      inn1Overs: inn1 ? formatOvers(balls.filter((b) => b.innings_id === inn1.id && b.extra_type === 'none').length) : '0.0',
-    };
+      const targetRuns = (inn1?.total_runs ?? 0) + 1;
+      const runsNeeded = targetRuns - runningRuns;
+      const maxLegalBalls = innings.overs_limit * 6;
+      const ballsRemaining = Math.max(0, maxLegalBalls - runningLegalBalls);
+      const requiredRunRate =
+        ballsRemaining > 0 ? parseFloat(((runsNeeded / ballsRemaining) * 6).toFixed(2)) : 0;
+
+      targetInfo = {
+        targetRuns,
+        runsNeeded,
+        ballsRemaining,
+        requiredRunRate,
+        inn1TotalRuns: inn1?.total_runs ?? 0,
+        inn1TotalWickets: inn1?.total_wickets ?? 0,
+        inn1Overs: inn1
+          ? formatOvers(
+              balls.filter((b) => b.innings_id === inn1.id && b.extra_type === 'none').length
+            )
+          : '0.0',
+      };
+    }
+  } else {
+    // Test match target / lead / trail info
+    const allInns = await db.innings.where('match_id').equals(innings.match_id).toArray();
+    const inn1 = allInns.find((i) => i.innings_number === 1);
+    const inn2 = allInns.find((i) => i.innings_number === 2);
+    const inn3 = allInns.find((i) => i.innings_number === 3);
+
+    if (innings.innings_number === 2 && inn1) {
+      const diff = runningRuns - inn1.total_runs;
+      const trailOrLead =
+        diff > 0
+          ? `Lead by ${diff} run${diff !== 1 ? 's' : ''}`
+          : diff < 0
+          ? `Trail by ${Math.abs(diff)} run${Math.abs(diff) !== 1 ? 's' : ''}`
+          : 'Scores level';
+
+      targetInfo = {
+        isTest: true,
+        diff,
+        trailOrLead,
+        inn1TotalRuns: inn1.total_runs,
+      };
+    } else if (innings.innings_number === 3 && inn1 && inn2) {
+      const teamATotal = inn1.total_runs + runningRuns;
+      const diff = teamATotal - inn2.total_runs;
+      const trailOrLead =
+        diff > 0
+          ? `Lead by ${diff} run${diff !== 1 ? 's' : ''}`
+          : diff < 0
+          ? `Trail by ${Math.abs(diff)} run${Math.abs(diff) !== 1 ? 's' : ''}`
+          : 'Scores level';
+
+      targetInfo = {
+        isTest: true,
+        diff,
+        trailOrLead,
+        teamATotal,
+        teamBTotal: inn2.total_runs,
+      };
+    } else if (innings.innings_number === 4 && inn1 && inn2 && inn3) {
+      const teamATotal = inn1.total_runs + inn3.total_runs;
+      const targetRuns = teamATotal - inn2.total_runs + 1;
+      const runsNeeded = targetRuns - runningRuns;
+      const wicketsInHand = Math.max(0, battingTeamPlayers.length - runningWickets);
+
+      targetInfo = {
+        isTest: true,
+        isFourthInnings: true,
+        targetRuns,
+        runsNeeded,
+        wicketsInHand,
+        teamATotal,
+      };
+    }
   }
 
   // Delivery chips representation
@@ -984,22 +1265,56 @@ export async function getMatchScorecard(matchId, db = defaultDb) {
   const inningsStates = await Promise.all(allInnings.map((inn) => getInningsState(inn.id, db)));
 
   const result = await db.match_results.where('match_id').equals(matchId).first();
-  const winner = result ? hydratedTeams.find((t) => t.id === result.winning_team_id) : null;
+  const winner = result?.winning_team_id
+    ? hydratedTeams.find((t) => t.id === result.winning_team_id) || null
+    : null;
 
   // Build match result summary string
   let resultSummary = '';
+  const isTest = match.cricket_format === 'test' || match.format === 'test';
+
   if (match.status === 'completed') {
-    if (result && winner) {
-      const inn1 = inningsStates.find((i) => i.innings.innings_number === 1);
-      const inn2 = inningsStates.find((i) => i.innings.innings_number === 2);
-      if (inn2 && winner.id === inn2.battingTeam?.id) {
-        const remainingWickets = (inn2.battingScorecard.length || 0) - inn2.totalWickets;
-        resultSummary = `${winner.label} won by ${remainingWickets} wicket${remainingWickets !== 1 ? 's' : ''}`;
-      } else if (inn1 && inn2) {
-        const marginRuns = Math.abs(inn1.totalRuns - inn2.totalRuns);
-        resultSummary = `${winner.label} won by ${marginRuns} run${marginRuns !== 1 ? 's' : ''}`;
+    if (match.end_reason === 'draw') {
+      resultSummary = 'Match Drawn';
+    } else if (result && winner) {
+      if (!isTest) {
+        const inn1 = inningsStates.find((i) => i.innings.innings_number === 1);
+        const inn2 = inningsStates.find((i) => i.innings.innings_number === 2);
+        if (inn2 && winner.id === inn2.battingTeam?.id) {
+          const remainingWickets = (inn2.battingScorecard.length || 0) - inn2.totalWickets;
+          resultSummary = `${winner.label} won by ${remainingWickets} wicket${remainingWickets !== 1 ? 's' : ''}`;
+        } else if (inn1 && inn2) {
+          const marginRuns = Math.abs(inn1.totalRuns - inn2.totalRuns);
+          resultSummary = `${winner.label} won by ${marginRuns} run${marginRuns !== 1 ? 's' : ''}`;
+        } else {
+          resultSummary = `${winner.label} won`;
+        }
       } else {
-        resultSummary = `${winner.label} won`;
+        // Test Match Summary
+        const inn1 = inningsStates.find((i) => i.innings.innings_number === 1);
+        const inn2 = inningsStates.find((i) => i.innings.innings_number === 2);
+        const inn3 = inningsStates.find((i) => i.innings.innings_number === 3);
+        const inn4 = inningsStates.find((i) => i.innings.innings_number === 4);
+
+        if (inn2 && winner.id === inn2.battingTeam?.id && (!inn4 || inn4.totalRuns === 0)) {
+          // Innings defeat check
+          const teamATotal = (inn1?.totalRuns || 0) + (inn3?.totalRuns || 0);
+          const teamBTotal = inn2?.totalRuns || 0;
+          if (teamBTotal >= teamATotal) {
+            const margin = teamBTotal - teamATotal;
+            resultSummary = `${winner.label} won by an innings and ${margin} run${margin !== 1 ? 's' : ''}`;
+          }
+        }
+
+        if (!resultSummary && inn4 && winner.id === inn4.battingTeam?.id) {
+          const remainingWickets = (inn4.battingScorecard.length || 0) - inn4.totalWickets;
+          resultSummary = `${winner.label} won by ${remainingWickets} wicket${remainingWickets !== 1 ? 's' : ''}`;
+        } else if (!resultSummary && inn1 && inn2 && inn3) {
+          const teamATotal = (inn1?.totalRuns || 0) + (inn3?.totalRuns || 0);
+          const teamBTotal = (inn2?.totalRuns || 0) + (inn4?.totalRuns || 0);
+          const marginRuns = Math.abs(teamATotal - teamBTotal);
+          resultSummary = `${winner.label} won by ${marginRuns} run${marginRuns !== 1 ? 's' : ''}`;
+        }
       }
     } else if (result && !result.winning_team_id) {
       resultSummary = 'Match Tied';
@@ -1008,10 +1323,12 @@ export async function getMatchScorecard(matchId, db = defaultDb) {
     }
   } else if (match.status === 'live') {
     const activeInn = inningsStates[inningsStates.length - 1];
-    if (activeInn?.innings.innings_number === 2 && activeInn.targetInfo) {
+    if (activeInn?.innings.innings_number === 2 && !isTest && activeInn.targetInfo) {
       resultSummary = `${activeInn.battingTeam?.label} need ${activeInn.targetInfo.runsNeeded} runs from ${activeInn.targetInfo.ballsRemaining} balls`;
+    } else if (activeInn?.innings.innings_number === 4 && isTest && activeInn.targetInfo) {
+      resultSummary = `${activeInn.battingTeam?.label} need ${activeInn.targetInfo.runsNeeded} runs to win (${activeInn.targetInfo.wicketsInHand} wkts in hand)`;
     } else if (activeInn) {
-      resultSummary = `${activeInn.battingTeam?.label} batting: ${activeInn.totalRuns}/${activeInn.totalWickets} (${activeInn.oversFormatted} ov)`;
+      resultSummary = `${activeInn.battingTeam?.label} ${isTest ? `(Inn ${activeInn.innings.innings_number})` : ''}: ${activeInn.totalRuns}/${activeInn.totalWickets} (${activeInn.oversFormatted} ov)`;
     }
   }
 

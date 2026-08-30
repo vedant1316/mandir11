@@ -209,6 +209,8 @@ export default function MatchDetail() {
             scoreKey="team_a_score"
             sport={match.sport}
             cricketInnings={cricketScorecard?.innings.find((i) => i.battingTeam?.label === 'Team A')}
+            allCricketInnings={cricketScorecard?.innings.filter((i) => i.battingTeam?.id === teamA?.id)}
+            isTestMatch={match.cricket_format === 'test' || match.format === 'test'}
           />
           <TeamDetailCard
             id="team-b-detail"
@@ -218,6 +220,8 @@ export default function MatchDetail() {
             scoreKey="team_b_score"
             sport={match.sport}
             cricketInnings={cricketScorecard?.innings.find((i) => i.battingTeam?.label === 'Team B')}
+            allCricketInnings={cricketScorecard?.innings.filter((i) => i.battingTeam?.id === teamB?.id)}
+            isTestMatch={match.cricket_format === 'test' || match.format === 'test'}
           />
         </div>
 
@@ -549,7 +553,7 @@ export default function MatchDetail() {
   );
 }
 
-function TeamDetailCard({ id, team, result, isWinner, scoreKey, sport, cricketInnings }) {
+function TeamDetailCard({ id, team, result, isWinner, scoreKey, sport, cricketInnings, allCricketInnings, isTestMatch }) {
   if (!team) return (
     <div id={id} className="card p-4">
       <p className="text-xs text-gray-600 italic">No team assigned</p>
@@ -569,10 +573,22 @@ function TeamDetailCard({ id, team, result, isWinner, scoreKey, sport, cricketIn
         {isWinner && <span className="text-emerald-400 text-sm">🏆</span>}
       </div>
 
-      {sport === 'cricket' && cricketInnings ? (
+      {sport === 'cricket' && isTestMatch && allCricketInnings && allCricketInnings.length > 0 ? (
+        <div className="mb-3 space-y-1">
+          {allCricketInnings.map((inn, idx) => (
+            <p key={inn.innings.id} className={`text-base sm:text-lg font-black ${isWinner ? 'text-emerald-300' : 'text-white'}`}>
+              <span className="text-xs font-semibold text-gray-400 mr-1.5">Inn {idx + 1}:</span>
+              {inn.totalRuns}/{inn.totalWickets}
+              <span className="text-xs font-normal text-gray-400 ml-1">({inn.oversFormatted} ov)</span>
+              {inn.innings.is_declared ? <span className="text-amber-400 text-xs ml-1">d</span> : ''}
+            </p>
+          ))}
+        </div>
+      ) : sport === 'cricket' && cricketInnings ? (
         <p className={`text-2xl font-black mb-3 ${isWinner ? 'text-emerald-300' : 'text-white'}`}>
           {cricketInnings.totalRuns}/{cricketInnings.totalWickets}{' '}
           <span className="text-xs font-normal text-gray-400">({cricketInnings.oversFormatted} ov)</span>
+          {cricketInnings.innings.is_declared ? <span className="text-amber-400 text-xs ml-1">d</span> : ''}
         </p>
       ) : score !== null && score !== undefined ? (
         <p className={`text-3xl font-black mb-3 ${isWinner ? 'text-emerald-300' : 'text-white'}`}>

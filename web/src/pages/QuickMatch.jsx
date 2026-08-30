@@ -41,6 +41,7 @@ export default function QuickMatch() {
   const [stakeError, setStakeError] = useState(null);
 
   // Cricket specific settings
+  const [cricketFormat, setCricketFormat] = useState('limited_overs'); // 'limited_overs' | 'test'
   const [oversLimit, setOversLimit] = useState(5);
   const [battingFirstTeam, setBattingFirstTeam] = useState('A'); // 'A' | 'B'
   const [openingBatterId, setOpeningBatterId] = useState('');
@@ -197,7 +198,10 @@ export default function QuickMatch() {
     setLoading(true);
     setError(null);
     try {
-      const matchRes = await matchesApi.create(sport);
+      const matchRes = await matchesApi.create({
+        sport,
+        cricket_format: sport === 'cricket' ? cricketFormat : null,
+      });
       const mid = matchRes.data.id;
 
       const teamsRes = await matchesApi.createTeams(mid, [
@@ -229,7 +233,7 @@ export default function QuickMatch() {
           matchId: mid,
           battingTeamId: battingTeamRecord.id,
           inningsNumber: 1,
-          oversLimit: parseInt(oversLimit, 10) || 5,
+          oversLimit: cricketFormat === 'test' ? null : (parseInt(oversLimit, 10) || 5),
           openingBatterId: openingBatterId || null,
           openingBowlerId: openingBowlerId || null,
         });
@@ -678,27 +682,62 @@ export default function QuickMatch() {
                   <span>🏏</span> Cricket Match Settings
                 </h3>
 
-                {/* Overs selector */}
+                {/* Match Type Selector */}
                 <div>
-                  <label className="label">Overs per Innings</label>
-                  <div className="flex items-center gap-2 flex-wrap mb-2">
-                    {[2, 4, 5, 6, 8, 10, 15, 20].map((ov) => (
-                      <button
-                        key={ov}
-                        id={`overs-chip-${ov}`}
-                        type="button"
-                        onClick={() => setOversLimit(ov)}
-                        className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
-                          oversLimit === ov
-                            ? 'bg-brand-500 border-brand-400 text-white'
-                            : 'bg-surface-700 border-surface-600 text-gray-400 hover:text-white'
-                        }`}
-                      >
-                        {ov} ov
-                      </button>
-                    ))}
+                  <label className="label">Match Type</label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      id="format-limited-overs"
+                      onClick={() => setCricketFormat('limited_overs')}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        cricketFormat === 'limited_overs'
+                          ? 'bg-brand-500/20 border-brand-500 text-white'
+                          : 'bg-surface-700 border-surface-600 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <p className="font-bold text-xs">⚡ Limited Overs</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">1 innings per team · Set overs limit</p>
+                    </button>
+                    <button
+                      type="button"
+                      id="format-test-match"
+                      onClick={() => setCricketFormat('test')}
+                      className={`p-3 rounded-xl border text-left transition-all ${
+                        cricketFormat === 'test'
+                          ? 'bg-amber-500/20 border-amber-500 text-white'
+                          : 'bg-surface-700 border-surface-600 text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      <p className="font-bold text-xs">🛡️ Test Match</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Up to 2 innings per team · Declarations & Leads</p>
+                    </button>
                   </div>
                 </div>
+
+                {/* Overs selector (Limited Overs only) */}
+                {cricketFormat === 'limited_overs' && (
+                  <div>
+                    <label className="label">Overs per Innings</label>
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      {[2, 4, 5, 6, 8, 10, 15, 20].map((ov) => (
+                        <button
+                          key={ov}
+                          id={`overs-chip-${ov}`}
+                          type="button"
+                          onClick={() => setOversLimit(ov)}
+                          className={`px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
+                            oversLimit === ov
+                              ? 'bg-brand-500 border-brand-400 text-white'
+                              : 'bg-surface-700 border-surface-600 text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          {ov} ov
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Toss / Batting First */}
                 <div>

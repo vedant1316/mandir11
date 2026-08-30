@@ -49,8 +49,12 @@ export const matchesApi = {
     const data = await matchEngine.getMatch(id);
     return { data };
   },
-  create: async (sport, tournament_id = null) => {
-    const data = await matchEngine.createMatch({ sport, tournament_id });
+  create: async (sportOrPayload, tournament_id = null) => {
+    const payload =
+      typeof sportOrPayload === 'string'
+        ? { sport: sportOrPayload, tournament_id }
+        : sportOrPayload;
+    const data = await matchEngine.createMatch(payload);
     return { data };
   },
   createTeams: async (id, teams) => {
@@ -100,6 +104,14 @@ export const cricketApi = {
   },
   switchInnings: async (params) => {
     const data = await cricketScorer.switchInnings(params);
+    return { data };
+  },
+  declareInnings: async (params) => {
+    const data = await cricketScorer.declareInnings(params);
+    return { data };
+  },
+  endMatchAsDraw: async (matchId) => {
+    const data = await cricketScorer.endMatchAsDraw(matchId);
     return { data };
   },
   undoLastBall: async (params) => {

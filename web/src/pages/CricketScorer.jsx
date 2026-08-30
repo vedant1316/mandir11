@@ -31,6 +31,9 @@ export default function CricketScorer() {
   const [nextBatterId, setNextBatterId] = useState('');
   const [wicketError, setWicketError] = useState(null);
 
+  const [showDeclareModal, setShowDeclareModal] = useState(false);
+  const [showDrawModal, setShowDrawModal] = useState(false);
+
   const [showNextBowlerModal, setShowNextBowlerModal] = useState(false);
   const [selectedNextBowlerId, setSelectedNextBowlerId] = useState('');
 
@@ -51,7 +54,7 @@ export default function CricketScorer() {
   const [pomPlayerId, setPomPlayerId] = useState('');
   const [pomSubmitting, setPomSubmitting] = useState(false);
 
-  const [scorecardTab, setScorecardTab] = useState(1); // 1 or 2
+  const [scorecardTab, setScorecardTab] = useState(1); // 1, 2, 3, 4
   const [showDetailedScorecard, setShowDetailedScorecard] = useState(false);
 
   // Load match state
@@ -71,6 +74,9 @@ export default function CricketScorer() {
         setActiveInningsState(latestInnings);
         setScorecardTab(latestInnings.innings.innings_number);
 
+        const isTest = sc.match.cricket_format === 'test' || sc.match.format === 'test';
+        const maxInnings = isTest ? 4 : 2;
+
         // Check if over completed and needs bowler
         if (
           !latestInnings.isInningsClosed &&
@@ -80,12 +86,11 @@ export default function CricketScorer() {
           setShowNextBowlerModal(true);
         }
 
-        // Check if Innings 1 is closed but Innings 2 hasn't started
+        // Check if latest innings is closed but match is still live and more innings remain
         if (
-          latestInnings.innings.innings_number === 1 &&
           latestInnings.isInningsClosed &&
           sc.match.status === 'live' &&
-          sc.innings.length === 1
+          sc.innings.length < maxInnings
         ) {
           setShowInningsBreakModal(true);
         }
@@ -210,14 +215,15 @@ export default function CricketScorer() {
     }
   };
 
-  const handleStartSecondInnings = async () => {
+  const handleStartNextInnings = async () => {
     if (!matchScorecard || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      const inn1 = matchScorecard.innings.find((i) => i.innings.innings_number === 1);
+      const allInns = matchScorecard.innings;
+      const latestInn = allInns[allInns.length - 1];
       const teams = matchScorecard.match.teams;
-      const targetBattingTeam = teams.find((t) => t.id !== inn1?.battingTeam?.id);
+      const targetBattingTeam = teams.find((t) => t.id !== latestInn?.battingTeam?.id);
 
       await cricketApi.switchInnings({
         matchId,
@@ -227,10 +233,48 @@ export default function CricketScorer() {
       });
 
       setShowInningsBreakModal(false);
-      showFlash('🏏 2nd Innings Started!');
+      setInn2OpeningBatter('');
+      setInn2OpeningBowler('');
+      showFlash(`🏏 Innings ${allInns.length + 1} Started!`);
       await loadState();
     } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'Error starting 2nd innings.');
+      setError(err.response?.data?.detail || err.message || 'Error starting next innings.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeclareInnings = async () => {
+    if (!activeInningsState || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await cricketApi.declareInnings({
+        matchId,
+        inningsId: activeInningsState.innings.id,
+      });
+      setActiveInningsState(res.data);
+      setShowDeclareModal(false);
+      showFlash('🚩 Innings Declared');
+      await loadState();
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to declare innings.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleEndMatchAsDraw = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await cricketApi.endMatchAsDraw(matchId);
+      setShowDrawModal(false);
+      showFlash('🤝 Match Ended as Draw');
+      await loadState();
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'Failed to end match as draw.');
     } finally {
       setSubmitting(false);
     }
@@ -403,81 +447,103 @@ export default function CricketScorer() {
         )}
 
         {/* ── Main Scoreboard Card ──────────────────────────────── */}
-        {currentInnings && (
-          <div className="card p-5 mb-5 bg-gradient-to-br from-surface-800 to-surface-900 border-surface-600/70 shadow-2xl relative overflow-hidden">
-            {/* Background sport watermark */}
-            <div className="absolute right-[-10px] bottom-[-20px] text-8xl opacity-5 pointer-events-none select-none">
-              🏏
-            </div>
+        {currentInnings && (() => {
+          const isTestMatch = matchScorecard?.match.cricket_format === 'test' || matchScorecard?.match.format === 'test';
 
-            {/* Innings 1 badge if in Innings 2 */}
-            {currentInnings.innings.innings_number === 2 && currentInnings.targetInfo && (
+          return (
+            <div className="card p-5 mb-5 bg-gradient-to-br from-surface-800 to-surface-900 border-surface-600/70 shadow-2xl relative overflow-hidden">
+              {/* Background sport watermark */}
+              <div className="absolute right-[-10px] bottom-[-20px] text-8xl opacity-5 pointer-events-none select-none">
+                🏏
+              </div>
+
+              {/* Match Format & Innings info */}
               <div className="mb-3 flex items-center justify-between text-xs text-gray-400 bg-surface-700/60 px-3 py-1.5 rounded-lg border border-surface-600/40">
-                <span>
-                  1st Inn: <strong className="text-white">{matchScorecard?.match.teams.find((t) => t.id !== currentInnings.battingTeam.id)?.label}</strong>{' '}
-                  {currentInnings.targetInfo.inn1TotalRuns}/{currentInnings.targetInfo.inn1TotalWickets} ({currentInnings.targetInfo.inn1Overs} ov)
+                <span className="font-semibold text-gray-300">
+                  {isTestMatch ? '🛡️ Test Match' : '⚡ Limited Overs'} · Innings {currentInnings.innings.innings_number} of {isTestMatch ? 4 : 2}
+                  {currentInnings.innings.is_declared ? ' (dec)' : ''}
                 </span>
-                <span className="text-amber-400 font-semibold">
-                  Target: {currentInnings.targetInfo.targetRuns}
-                </span>
-              </div>
-            )}
-
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-wider text-brand-400 font-bold mb-1 flex items-center gap-1.5">
-                  <span>Inn {currentInnings.innings.innings_number}</span> · <span>{currentInnings.battingTeam?.label} Batting</span>
-                </p>
-                <div className="flex items-baseline gap-2">
-                  <h1 id="live-score-display" className="text-4xl sm:text-5xl font-black text-white tracking-tight">
-                    {currentInnings.totalRuns}/{currentInnings.totalWickets}
-                  </h1>
-                  <span id="live-overs-display" className="text-lg sm:text-xl font-bold text-gray-400">
-                    ({currentInnings.oversFormatted} / {currentInnings.oversLimit} ov)
+                {isTestMatch && currentInnings.targetInfo?.trailOrLead && (
+                  <span className="text-amber-400 font-bold">
+                    {currentInnings.targetInfo.trailOrLead}
                   </span>
-                </div>
-              </div>
-
-              <div className="text-right">
-                <p className="text-xs text-gray-500 font-medium">CRR</p>
-                <p id="live-crr" className="text-lg font-bold text-white">
-                  {currentInnings.currentRunRate}
-                </p>
-                {currentInnings.targetInfo && (
-                  <>
-                    <p className="text-xs text-gray-500 font-medium mt-1">RRR</p>
-                    <p id="live-rrr" className="text-sm font-bold text-amber-400">
-                      {currentInnings.targetInfo.requiredRunRate}
-                    </p>
-                  </>
+                )}
+                {!isTestMatch && currentInnings.innings.innings_number === 2 && currentInnings.targetInfo && (
+                  <span className="text-amber-400 font-semibold">
+                    Target: {currentInnings.targetInfo.targetRuns}
+                  </span>
                 )}
               </div>
-            </div>
 
-            {/* Chase Equation */}
-            {currentInnings.targetInfo && !isMatchCompleted && (
-              <div id="chase-equation-banner" className="mt-4 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs font-semibold text-amber-300 flex items-center justify-between">
-                <span>
-                  Need <strong className="text-white text-sm">{currentInnings.targetInfo.runsNeeded}</strong> runs from{' '}
-                  <strong className="text-white text-sm">{currentInnings.targetInfo.ballsRemaining}</strong> balls
-                </span>
-                <span className="text-amber-400">
-                  {currentInnings.battingScorecard.length - currentInnings.totalWickets} wkts in hand
-                </span>
-              </div>
-            )}
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-brand-400 font-bold mb-1 flex items-center gap-1.5">
+                    <span>Inn {currentInnings.innings.innings_number}</span> · <span>{currentInnings.battingTeam?.label} Batting</span>
+                  </p>
+                  <div className="flex items-baseline gap-2">
+                    <h1 id="live-score-display" className="text-4xl sm:text-5xl font-black text-white tracking-tight">
+                      {currentInnings.totalRuns}/{currentInnings.totalWickets}
+                    </h1>
+                    <span id="live-overs-display" className="text-lg sm:text-xl font-bold text-gray-400">
+                      ({currentInnings.oversFormatted}{!isTestMatch ? ` / ${currentInnings.oversLimit}` : ''} ov)
+                    </span>
+                  </div>
+                </div>
 
-            {/* Completed Match Winner Banner */}
-            {isMatchCompleted && matchScorecard && (
-              <div id="match-winner-card" className="mt-4 p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300">
-                <div className="flex items-center gap-2 font-bold text-sm">
-                  <span className="text-xl">🏆</span>
-                  <span>{matchScorecard.resultSummary}</span>
+                <div className="text-right">
+                  <p className="text-xs text-gray-500 font-medium">CRR</p>
+                  <p id="live-crr" className="text-lg font-bold text-white">
+                    {currentInnings.currentRunRate}
+                  </p>
+                  {!isTestMatch && currentInnings.targetInfo && (
+                    <>
+                      <p className="text-xs text-gray-500 font-medium mt-1">RRR</p>
+                      <p id="live-rrr" className="text-sm font-bold text-amber-400">
+                        {currentInnings.targetInfo.requiredRunRate}
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
-            )}
-          </div>
-        )}
+
+              {/* Chase Equation for Limited Overs */}
+              {!isTestMatch && currentInnings.targetInfo && !isMatchCompleted && (
+                <div id="chase-equation-banner" className="mt-4 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs font-semibold text-amber-300 flex items-center justify-between">
+                  <span>
+                    Need <strong className="text-white text-sm">{currentInnings.targetInfo.runsNeeded}</strong> runs from{' '}
+                    <strong className="text-white text-sm">{currentInnings.targetInfo.ballsRemaining}</strong> balls
+                  </span>
+                  <span className="text-amber-400">
+                    {currentInnings.battingScorecard.length - currentInnings.totalWickets} wkts in hand
+                  </span>
+                </div>
+              )}
+
+              {/* 4th Innings Chase Equation for Test Matches */}
+              {isTestMatch && currentInnings.targetInfo?.isFourthInnings && !isMatchCompleted && (
+                <div id="test-chase-equation-banner" className="mt-4 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs font-semibold text-amber-300 flex items-center justify-between">
+                  <span>
+                    Target: <strong className="text-white text-sm">{currentInnings.targetInfo.targetRuns}</strong> · Need{' '}
+                    <strong className="text-white text-sm">{currentInnings.targetInfo.runsNeeded}</strong> runs
+                  </span>
+                  <span className="text-amber-400">
+                    {currentInnings.targetInfo.wicketsInHand} wkts in hand
+                  </span>
+                </div>
+              )}
+
+              {/* Completed Match Winner Banner */}
+              {isMatchCompleted && matchScorecard && (
+                <div id="match-winner-card" className="mt-4 p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300">
+                  <div className="flex items-center gap-2 font-bold text-sm">
+                    <span className="text-xl">🏆</span>
+                    <span>{matchScorecard.resultSummary}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── Active Striker & Bowler Cards ─────────────────────── */}
         {isMatchLive && !currentInnings?.isInningsClosed && (
@@ -722,6 +788,33 @@ export default function CricketScorer() {
                 <span>Undo</span>
               </button>
             </div>
+
+            {/* Test Match & Inning Control Buttons */}
+            <div className="flex gap-2 pt-2 border-t border-surface-700/50">
+              <button
+                id="btn-declare-innings"
+                type="button"
+                disabled={submitting}
+                onClick={() => setShowDeclareModal(true)}
+                className="flex-1 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 text-amber-300 text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+              >
+                <span>🚩</span>
+                <span>Declare Innings</span>
+              </button>
+
+              {(matchScorecard?.match.cricket_format === 'test' || matchScorecard?.match.format === 'test') && (
+                <button
+                  id="btn-draw-match"
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => setShowDrawModal(true)}
+                  className="flex-1 py-2 rounded-xl bg-surface-700 border border-surface-600 hover:bg-surface-600 text-gray-300 text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                >
+                  <span>🤝</span>
+                  <span>End as Draw</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -746,29 +839,37 @@ export default function CricketScorer() {
         )}
 
         {/* ── Innings Break Banner Button ───────────────────────── */}
-        {isMatchLive && currentInnings?.isInningsClosed && currentInnings?.innings.innings_number === 1 && (
-          <div id="innings-break-banner" className="card p-6 mb-6 text-center border-brand-500/40 bg-brand-500/10">
-            <h3 className="text-xl font-black text-white mb-2">Innings 1 Complete!</h3>
-            <p className="text-sm text-gray-300 mb-2">
-              <strong>{currentInnings.battingTeam?.label}</strong> finished with{' '}
-              <strong className="text-brand-300 text-base">
-                {currentInnings.totalRuns}/{currentInnings.totalWickets}
-              </strong>{' '}
-              ({currentInnings.oversFormatted} ov)
-            </p>
-            <p className="text-xs text-amber-400 font-semibold mb-6">
-              Target for 2nd Innings: {currentInnings.totalRuns + 1} runs
-            </p>
-            <button
-              id="btn-start-inn-2"
-              type="button"
-              onClick={() => setShowInningsBreakModal(true)}
-              className="btn-primary btn w-full btn-lg"
-            >
-              Start 2nd Innings →
-            </button>
-          </div>
-        )}
+        {isMatchLive && currentInnings?.isInningsClosed && (() => {
+          const isTest = matchScorecard?.match.cricket_format === 'test' || matchScorecard?.match.format === 'test';
+          const maxInnings = isTest ? 4 : 2;
+          const nextInnNum = (matchScorecard?.innings.length || 1) + 1;
+
+          if (matchScorecard && matchScorecard.innings.length < maxInnings) {
+            return (
+              <div id="innings-break-banner" className="card p-6 mb-6 text-center border-brand-500/40 bg-brand-500/10 animate-fade-in">
+                <h3 className="text-xl font-black text-white mb-2">
+                  Innings {currentInnings.innings.innings_number} Complete{currentInnings.innings.is_declared ? ' (Declared)' : ''}!
+                </h3>
+                <p className="text-sm text-gray-300 mb-2">
+                  <strong>{currentInnings.battingTeam?.label}</strong> finished with{' '}
+                  <strong className="text-brand-300 text-base">
+                    {currentInnings.totalRuns}/{currentInnings.totalWickets}
+                  </strong>{' '}
+                  ({currentInnings.oversFormatted} ov)
+                </p>
+                <button
+                  id="btn-start-next-inn"
+                  type="button"
+                  onClick={() => setShowInningsBreakModal(true)}
+                  className="btn-primary btn w-full btn-lg mt-4"
+                >
+                  Start Innings {nextInnNum} →
+                </button>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         {/* ── Match Completed Actions & POM ───────────────────────── */}
         {isMatchCompleted && (
@@ -1106,67 +1207,152 @@ export default function CricketScorer() {
         </div>
       )}
 
-      {/* ── MODAL: INNINGS 1 BREAK / START INNINGS 2 ─────────────── */}
-      {showInningsBreakModal && (
+      {/* ── MODAL: INNINGS BREAK / SETUP NEXT INNINGS ────────────── */}
+      {showInningsBreakModal && (() => {
+        const isTest = matchScorecard?.match.cricket_format === 'test' || matchScorecard?.match.format === 'test';
+        const nextInnNumber = (matchScorecard?.innings.length || 1) + 1;
+        const targetBattingTeam = matchScorecard?.match.teams.find((t) => t.id !== currentInnings?.battingTeam?.id);
+        const defendingTeam = currentInnings?.battingTeam;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+            <div className="card max-w-md w-full p-6 space-y-5">
+              <h3 className="text-xl font-black text-white flex items-center gap-2">
+                <span>🏏</span> Setup Innings {nextInnNumber} of {isTest ? 4 : 2}
+              </h3>
+              <p className="text-xs text-gray-400">
+                Innings {currentInnings?.innings.innings_number}: {currentInnings?.totalRuns}/{currentInnings?.totalWickets} ({currentInnings?.oversFormatted} ov)
+                {currentInnings?.innings.is_declared ? ' · Declared' : ''}
+              </p>
+
+              {/* Select Opening Batter */}
+              <div>
+                <label className="label">Opening Batter ({targetBattingTeam?.label})</label>
+                <select
+                  id="select-inn2-batter"
+                  className="input text-sm"
+                  value={inn2OpeningBatter}
+                  onChange={(e) => setInn2OpeningBatter(e.target.value)}
+                >
+                  <option value="">— Select opening batter —</option>
+                  {targetBattingTeam?.players?.map((p) => (
+                    <option key={p.player?.id} value={p.player?.id}>
+                      {p.player?.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Select Opening Bowler */}
+              <div>
+                <label className="label">Opening Bowler ({defendingTeam?.label})</label>
+                <select
+                  id="select-inn2-bowler"
+                  className="input text-sm"
+                  value={inn2OpeningBowler}
+                  onChange={(e) => setInn2OpeningBowler(e.target.value)}
+                >
+                  <option value="">— Select opening bowler —</option>
+                  {defendingTeam && matchScorecard?.match.teams
+                    .find((t) => t.id === defendingTeam.id)
+                    ?.players?.map((p) => (
+                      <option key={p.player?.id} value={p.player?.id}>
+                        {p.player?.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowInningsBreakModal(false)}
+                  className="btn-secondary btn flex-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  id="btn-confirm-start-inn2"
+                  type="button"
+                  disabled={submitting}
+                  onClick={handleStartNextInnings}
+                  className="btn-primary btn flex-1 btn-lg"
+                >
+                  {submitting ? 'Starting…' : `Start Innings ${nextInnNumber} →`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── MODAL: DECLARE INNINGS CONFIRMATION ──────────────────── */}
+      {showDeclareModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
-          <div className="card max-w-md w-full p-6 space-y-5">
-            <h3 className="text-xl font-black text-white flex items-center gap-2">
-              <span>🏏</span> Setup 2nd Innings
+          <div className="card max-w-md w-full p-6 space-y-4">
+            <h3 className="text-lg font-black text-amber-400 flex items-center gap-2">
+              <span>🚩</span> Declare Innings?
             </h3>
-            <p className="text-xs text-gray-400">
-              1st Innings: {currentInnings?.totalRuns}/{currentInnings?.totalWickets}. Target to win:{' '}
-              <strong className="text-amber-400">{(currentInnings?.totalRuns || 0) + 1}</strong>
+            <p className="text-xs text-gray-300">
+              Are you sure you want to declare <strong>{currentInnings?.battingTeam?.label}</strong>&apos;s innings at{' '}
+              <strong className="text-white">{currentInnings?.totalRuns}/{currentInnings?.totalWickets}</strong>?
             </p>
-
-            {/* Select Opening Batter from Team B */}
-            <div>
-              <label className="label">Opening Batter (Chasing Team)</label>
-              <select
-                id="select-inn2-batter"
-                className="input text-sm"
-                value={inn2OpeningBatter}
-                onChange={(e) => setInn2OpeningBatter(e.target.value)}
-              >
-                <option value="">— Select opening batter —</option>
-                {matchScorecard?.match.teams
-                  .find((t) => t.id !== currentInnings?.battingTeam?.id)
-                  ?.players?.map((p) => (
-                    <option key={p.player?.id} value={p.player?.id}>
-                      {p.player?.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-
-            {/* Select Opening Bowler from Team A */}
-            <div>
-              <label className="label">Opening Bowler (Defending Team)</label>
-              <select
-                id="select-inn2-bowler"
-                className="input text-sm"
-                value={inn2OpeningBowler}
-                onChange={(e) => setInn2OpeningBowler(e.target.value)}
-              >
-                <option value="">— Select opening bowler —</option>
-                {matchScorecard?.match.teams
-                  .find((t) => t.id === currentInnings?.battingTeam?.id)
-                  ?.players?.map((p) => (
-                    <option key={p.player?.id} value={p.player?.id}>
-                      {p.player?.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
+            <p className="text-xs text-gray-400">
+              This will immediately close the current innings and allow the next innings to begin.
+            </p>
 
             <div className="flex gap-3 pt-2">
               <button
-                id="btn-confirm-start-inn2"
+                type="button"
+                onClick={() => setShowDeclareModal(false)}
+                className="btn-secondary btn flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                id="btn-confirm-declare"
                 type="button"
                 disabled={submitting}
-                onClick={handleStartSecondInnings}
-                className="btn-primary btn w-full btn-lg"
+                onClick={handleDeclareInnings}
+                className="btn-primary btn flex-1 bg-amber-500 hover:bg-amber-600 border-none text-black font-bold"
               >
-                {submitting ? 'Starting Innings 2…' : 'Start 2nd Innings Chasing →'}
+                {submitting ? 'Declaring…' : 'Yes, Declare Innings'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: END MATCH AS DRAW CONFIRMATION ────────────────── */}
+      {showDrawModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="card max-w-md w-full p-6 space-y-4">
+            <h3 className="text-lg font-black text-white flex items-center gap-2">
+              <span>🤝</span> End Match as Draw?
+            </h3>
+            <p className="text-xs text-gray-300">
+              Are you sure you want to conclude this Test match as a <strong>Draw</strong>?
+            </p>
+            <p className="text-xs text-gray-400">
+              This will complete the match with a Drawn result and close any remaining innings.
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDrawModal(false)}
+                className="btn-secondary btn flex-1"
+              >
+                Cancel
+              </button>
+              <button
+                id="btn-confirm-draw"
+                type="button"
+                disabled={submitting}
+                onClick={handleEndMatchAsDraw}
+                className="btn-primary btn flex-1"
+              >
+                {submitting ? 'Concluding…' : 'End as Draw'}
               </button>
             </div>
           </div>
