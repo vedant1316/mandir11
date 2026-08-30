@@ -1,0 +1,12 @@
+{
+  "appId": "com.vedantaware.mandir11",
+  "appName": "Mandir 11",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
