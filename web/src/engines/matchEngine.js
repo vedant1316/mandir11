@@ -585,6 +585,8 @@ export async function deleteMatch(matchId, db = defaultDb) {
       db.overs,
       db.balls,
       db.ledger_entries,
+      db.ledger_payments,
+      db.debt_adjustments,
       db.fixtures,
     ],
     async () => {
@@ -606,8 +608,10 @@ export async function deleteMatch(matchId, db = defaultDb) {
       }
       await db.innings.where('match_id').equals(matchId).delete();
 
-      // 4. Ledger Entries
+      // 4. Ledger Entries, Payments & Adjustments
       await db.ledger_entries.where('match_id').equals(matchId).delete();
+      await db.ledger_payments.where('match_id').equals(matchId).delete();
+      await db.debt_adjustments.where('match_id').equals(matchId).delete();
 
       // 5. Fixtures referencing this match
       const fixtures = await db.fixtures.where('match_id').equals(matchId).toArray();

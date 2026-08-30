@@ -272,9 +272,17 @@ export default function MatchDetail() {
               <h3 className="section-title text-base flex items-center gap-2">
                 <span>💰</span> Match Stakes & Settlement
               </h3>
-              <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-brand-500/15 text-brand-300 border border-brand-500/30">
-                ₹{ledgerSettlement.totalPool} Pool
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs px-2.5 py-1 rounded-full font-bold bg-brand-500/15 text-brand-300 border border-brand-500/30">
+                  ₹{ledgerSettlement.totalPool} Pool
+                </span>
+                <Link
+                  to="/ledger"
+                  className="text-xs text-brand-400 hover:text-brand-300 font-bold"
+                >
+                  Manage Ledger →
+                </Link>
+              </div>
             </div>
 
             {/* If match is completed with settled payments */}

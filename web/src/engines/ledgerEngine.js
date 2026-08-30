@@ -449,7 +449,252 @@ export async function getPlayerLedgerHistory(playerId, db = defaultDb) {
 }
 
 /**
- * Computes colony-wide net balances and simplified debt settlement graph
+ * Generates a consistent debt identifier
+ */
+export function getDebtId(matchId, fromPlayerId, toPlayerId) {
+  return `${matchId || 'gen'}_${fromPlayerId}_${toPlayerId}`;
+}
+
+/**
+ * Records a full or partial payment against an outstanding debt
+ */
+export async function recordPayment(
+  { matchId, fromPlayerId, toPlayerId, amount, note = '', debtId },
+  db = defaultDb
+) {
+  if (!fromPlayerId || !toPlayerId) {
+    throw new InvalidStakeParticipantError('Both debtor (from) and creditor (to) are required for payment.');
+  }
+  if (fromPlayerId === toPlayerId) {
+    throw new InvalidStakeParticipantError('A player cannot make a payment to themselves.');
+  }
+
+  const validAmount = validateStakeAmount(amount);
+  const targetDebtId = debtId || getDebtId(matchId, fromPlayerId, toPlayerId);
+
+  const paymentRecord = {
+    id: generateId(),
+    match_id: matchId || null,
+    debt_id: targetDebtId,
+    from_player_id: fromPlayerId,
+    to_player_id: toPlayerId,
+    amount: validAmount,
+    note: (note || '').trim(),
+    created_at: new Date().toISOString(),
+  };
+
+  await db.ledger_payments.add(paymentRecord);
+
+  // Fetch hydrated player details
+  const fromPlayer = await db.players.get(fromPlayerId);
+  const toPlayer = await db.players.get(toPlayerId);
+
+  return {
+    ...paymentRecord,
+    fromPlayer: fromPlayer || { id: fromPlayerId, name: 'Unknown' },
+    toPlayer: toPlayer || { id: toPlayerId, name: 'Unknown' },
+  };
+}
+
+/**
+ * Undoes / deletes a previously recorded payment
+ */
+export async function deletePayment(paymentId, db = defaultDb) {
+  const payment = await db.ledger_payments.get(paymentId);
+  if (!payment) {
+    throw new MatchNotFoundError(`Payment '${paymentId}' not found.`);
+  }
+
+  await db.ledger_payments.delete(paymentId);
+  return { success: true, paymentId };
+}
+
+/**
+ * Updates / corrects an existing payment record
+ */
+export async function updatePayment(paymentId, { amount, note }, db = defaultDb) {
+  const payment = await db.ledger_payments.get(paymentId);
+  if (!payment) {
+    throw new MatchNotFoundError(`Payment '${paymentId}' not found.`);
+  }
+
+  const updates = {};
+  if (amount !== undefined) {
+    updates.amount = validateStakeAmount(amount);
+  }
+  if (note !== undefined) {
+    updates.note = String(note).trim();
+  }
+  updates.updated_at = new Date().toISOString();
+
+  await db.ledger_payments.update(paymentId, updates);
+  const updated = await db.ledger_payments.get(paymentId);
+
+  const fromPlayer = await db.players.get(updated.from_player_id);
+  const toPlayer = await db.players.get(updated.to_player_id);
+
+  return {
+    ...updated,
+    fromPlayer: fromPlayer || { id: updated.from_player_id, name: 'Unknown' },
+    toPlayer: toPlayer || { id: updated.to_player_id, name: 'Unknown' },
+  };
+}
+
+/**
+ * Adjusts / corrects the debt amount for an outstanding debt
+ */
+export async function adjustDebtAmount(
+  { matchId, fromPlayerId, toPlayerId, newAmount, reason = '', debtId },
+  db = defaultDb
+) {
+  const validNewAmount = Number(newAmount);
+  if (isNaN(validNewAmount) || validNewAmount < 0 || !isFinite(validNewAmount)) {
+    throw new InvalidStakeAmountError('Debt amount must be a non-negative number (>= 0).');
+  }
+
+  const targetDebtId = debtId || getDebtId(matchId, fromPlayerId, toPlayerId);
+
+  // Check how much has already been paid for this debt
+  const existingPayments = await db.ledger_payments
+    .where('debt_id')
+    .equals(targetDebtId)
+    .toArray();
+  const totalPaid = Math.round(
+    existingPayments.reduce((sum, p) => sum + p.amount, 0) * 100
+  ) / 100;
+
+  if (validNewAmount < totalPaid) {
+    throw new InvalidStakeAmountError(
+      `Adjusted debt amount (₹${validNewAmount}) cannot be less than already paid amount (₹${totalPaid}).`
+    );
+  }
+
+  const existingAdj = await db.debt_adjustments.get(targetDebtId);
+  if (existingAdj) {
+    await db.debt_adjustments.update(targetDebtId, {
+      adjusted_amount: validNewAmount,
+      reason: reason || existingAdj.reason,
+      updated_at: new Date().toISOString(),
+    });
+  } else {
+    await db.debt_adjustments.add({
+      id: targetDebtId,
+      match_id: matchId || null,
+      from_player_id: fromPlayerId,
+      to_player_id: toPlayerId,
+      adjusted_amount: validNewAmount,
+      reason: reason || '',
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  return {
+    debtId: targetDebtId,
+    adjustedAmount: validNewAmount,
+    totalPaid,
+    remainingAmount: Math.round((validNewAmount - totalPaid) * 100) / 100,
+  };
+}
+
+/**
+ * Retrieves all debts categorized into Outstanding vs Settled, with complete payment histories
+ */
+export async function getAllDebtsWithSettlement(db = defaultDb) {
+  const completedMatches = await db.matches.where('status').equals('completed').toArray();
+  const allPlayers = await db.players.toArray();
+  const playerMap = new Map(allPlayers.map((p) => [p.id, p]));
+
+  const allPayments = await db.ledger_payments.toArray();
+  const allAdjustments = await db.debt_adjustments.toArray();
+  const adjustmentMap = new Map(allAdjustments.map((a) => [a.id, a]));
+
+  const allDebts = [];
+
+  for (const m of completedMatches) {
+    const settlement = await calculateMatchSettlement(m.id, db);
+    if (!settlement.hasStakes || !settlement.isSettled || settlement.isAbandoned || settlement.isTie) {
+      continue;
+    }
+
+    for (const pay of settlement.payments) {
+      const debtId = getDebtId(m.id, pay.fromPlayer.id, pay.toPlayer.id);
+      const adjustment = adjustmentMap.get(debtId);
+
+      const originalAmount = pay.amount;
+      const currentDebtAmount = adjustment !== undefined ? adjustment.adjusted_amount : originalAmount;
+
+      // Find all payments for this debt
+      const debtPayments = allPayments
+        .filter((p) => p.debt_id === debtId || (p.match_id === m.id && p.from_player_id === pay.fromPlayer.id && p.to_player_id === pay.toPlayer.id))
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+      const totalPaid = Math.round(
+        debtPayments.reduce((sum, p) => sum + (p.amount || 0), 0) * 100
+      ) / 100;
+
+      const remainingAmount = Math.max(0, Math.round((currentDebtAmount - totalPaid) * 100) / 100);
+      const isSettled = remainingAmount === 0;
+
+      allDebts.push({
+        debtId,
+        matchId: m.id,
+        matchDate: m.date || m.created_at,
+        sport: m.sport,
+        fromPlayer: playerMap.get(pay.fromPlayer.id) || pay.fromPlayer,
+        toPlayer: playerMap.get(pay.toPlayer.id) || pay.toPlayer,
+        originalAmount,
+        currentDebtAmount,
+        isAdjusted: !!adjustment,
+        adjustmentReason: adjustment?.reason || null,
+        totalPaid,
+        remainingAmount,
+        isSettled,
+        payments: debtPayments.map((p) => ({
+          ...p,
+          fromPlayer: playerMap.get(p.from_player_id) || { id: p.from_player_id, name: 'Unknown' },
+          toPlayer: playerMap.get(p.to_player_id) || { id: p.to_player_id, name: 'Unknown' },
+        })),
+        lastPaymentDate: debtPayments.length > 0 ? debtPayments[debtPayments.length - 1].created_at : null,
+      });
+    }
+  }
+
+  const outstandingDebts = allDebts
+    .filter((d) => !d.isSettled)
+    .sort((a, b) => b.remainingAmount - a.remainingAmount);
+
+  const settledDebts = allDebts
+    .filter((d) => d.isSettled)
+    .sort((a, b) => new Date(b.lastPaymentDate || b.matchDate) - new Date(a.lastPaymentDate || a.matchDate));
+
+  const hydratedAllPayments = allPayments
+    .map((p) => ({
+      ...p,
+      fromPlayer: playerMap.get(p.from_player_id) || { id: p.from_player_id, name: 'Unknown' },
+      toPlayer: playerMap.get(p.to_player_id) || { id: p.to_player_id, name: 'Unknown' },
+    }))
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+  const totalOutstanding = Math.round(
+    outstandingDebts.reduce((sum, d) => sum + d.remainingAmount, 0) * 100
+  ) / 100;
+
+  const totalPaid = Math.round(
+    allPayments.reduce((sum, p) => sum + (p.amount || 0), 0) * 100
+  ) / 100;
+
+  return {
+    outstandingDebts,
+    settledDebts,
+    allPayments: hydratedAllPayments,
+    totalOutstanding,
+    totalPaid,
+    totalDebtsCount: allDebts.length,
+  };
+}
+
+/**
+ * Computes colony-wide net balances and simplified debt settlement graph (accounting for payments)
  */
 export async function getColonyLedgerSummary(db = defaultDb) {
   const completedMatches = await db.matches.where('status').equals('completed').toArray();
@@ -467,16 +712,38 @@ export async function getColonyLedgerSummary(db = defaultDb) {
     });
   });
 
-  // Net pairwise debt matrix: "fromId->toId" -> total net amount
+  const allDebtsResult = await getAllDebtsWithSettlement(db);
+
+  // Pairwise net remaining debt matrix: "fromId->toId" -> total net remaining amount
   const pairwiseNetDebt = new Map();
 
+  for (const debt of allDebtsResult.outstandingDebts) {
+    if (debt.remainingAmount <= 0) continue;
+
+    const forwardKey = `${debt.fromPlayer.id}->${debt.toPlayer.id}`;
+    const reverseKey = `${debt.toPlayer.id}->${debt.fromPlayer.id}`;
+
+    if (pairwiseNetDebt.has(reverseKey)) {
+      const revAmount = pairwiseNetDebt.get(reverseKey);
+      if (revAmount >= debt.remainingAmount) {
+        pairwiseNetDebt.set(reverseKey, Math.round((revAmount - debt.remainingAmount) * 100) / 100);
+      } else {
+        pairwiseNetDebt.delete(reverseKey);
+        pairwiseNetDebt.set(forwardKey, Math.round((debt.remainingAmount - revAmount) * 100) / 100);
+      }
+    } else {
+      const cur = pairwiseNetDebt.get(forwardKey) || 0;
+      pairwiseNetDebt.set(forwardKey, Math.round((cur + debt.remainingAmount) * 100) / 100);
+    }
+  }
+
+  // Accumulate lifetime player stats across all completed matches
   for (const m of completedMatches) {
     const settlement = await calculateMatchSettlement(m.id, db);
     if (!settlement.hasStakes || !settlement.isSettled || settlement.isAbandoned || settlement.isTie) {
       continue;
     }
 
-    // Accumulate player net balances
     settlement.playerBalances.forEach((pb) => {
       const stats = playerNetBalances.get(pb.player.id) || {
         player: pb.player,
@@ -494,28 +761,9 @@ export async function getColonyLedgerSummary(db = defaultDb) {
       stats.netBalance = Math.round((stats.totalWon - stats.totalLost) * 100) / 100;
       playerNetBalances.set(pb.player.id, stats);
     });
-
-    // Accumulate pairwise payments
-    settlement.payments.forEach((pay) => {
-      const forwardKey = `${pay.fromPlayer.id}->${pay.toPlayer.id}`;
-      const reverseKey = `${pay.toPlayer.id}->${pay.fromPlayer.id}`;
-
-      if (pairwiseNetDebt.has(reverseKey)) {
-        const revAmount = pairwiseNetDebt.get(reverseKey);
-        if (revAmount >= pay.amount) {
-          pairwiseNetDebt.set(reverseKey, Math.round((revAmount - pay.amount) * 100) / 100);
-        } else {
-          pairwiseNetDebt.delete(reverseKey);
-          pairwiseNetDebt.set(forwardKey, Math.round((pay.amount - revAmount) * 100) / 100);
-        }
-      } else {
-        const cur = pairwiseNetDebt.get(forwardKey) || 0;
-        pairwiseNetDebt.set(forwardKey, Math.round((cur + pay.amount) * 100) / 100);
-      }
-    });
   }
 
-  // Format pairwise debts
+  // Format pairwise remaining debts
   const colonyDebts = [];
   pairwiseNetDebt.forEach((amount, key) => {
     if (amount > 0) {
@@ -534,6 +782,11 @@ export async function getColonyLedgerSummary(db = defaultDb) {
 
   return {
     colonyDebts,
+    outstandingDebts: allDebtsResult.outstandingDebts,
+    settledDebts: allDebtsResult.settledDebts,
+    allPayments: allDebtsResult.allPayments,
+    totalOutstanding: allDebtsResult.totalOutstanding,
+    totalPaid: allDebtsResult.totalPaid,
     leaderboard,
     totalVolume: Math.round(
       leaderboard.reduce((sum, p) => sum + p.totalWon, 0) * 100

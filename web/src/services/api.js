@@ -171,6 +171,26 @@ export const ledgerApi = {
     const data = await ledgerEngine.getColonyLedgerSummary();
     return { data };
   },
+  recordPayment: async (payload) => {
+    const data = await ledgerEngine.recordPayment(payload);
+    return { data };
+  },
+  deletePayment: async (paymentId) => {
+    const data = await ledgerEngine.deletePayment(paymentId);
+    return { data };
+  },
+  updatePayment: async (paymentId, payload) => {
+    const data = await ledgerEngine.updatePayment(paymentId, payload);
+    return { data };
+  },
+  adjustDebtAmount: async (payload) => {
+    const data = await ledgerEngine.adjustDebtAmount(payload);
+    return { data };
+  },
+  getAllDebtsWithSettlement: async () => {
+    const data = await ledgerEngine.getAllDebtsWithSettlement();
+    return { data };
+  },
 };
 
 // ─── Stats & Rankings API (Local-First Adapter) ───────────────────────────────
