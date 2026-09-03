@@ -9,6 +9,7 @@ export default function Dashboard() {
   const [recentMatches, setRecentMatches] = useState([]);
   const [upcomingMatches, setUpcomingMatches] = useState([]);
   const [playerCount, setPlayerCount] = useState(0);
+  const [totalMatches, setTotalMatches] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -16,16 +17,22 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [liveRes, completedRes, upcomingRes, playersRes] = await Promise.all([
+      const [liveRes, completedRes, upcomingRes, playersRes, totalMatchesRes] = await Promise.all([
         matchesApi.list({ status: 'live', limit: 5 }),
         matchesApi.list({ status: 'completed', limit: 5 }),
         matchesApi.list({ status: 'upcoming', limit: 5 }),
         playersApi.list(true),
+        matchesApi.count(),
       ]);
       setLiveMatches(liveRes.data.matches);
       setRecentMatches(completedRes.data.matches);
       setUpcomingMatches(upcomingRes.data.matches);
       setPlayerCount(playersRes.data.total);
+      setTotalMatches(
+        typeof totalMatchesRes?.data === 'number'
+          ? totalMatchesRes.data
+          : totalMatchesRes?.data?.total ?? 0
+      );
     } catch {
       setError('Could not load dashboard data.');
     } finally {
@@ -72,6 +79,7 @@ export default function Dashboard() {
               label="Active Players"
               value={loading ? '—' : playerCount}
               icon="👥"
+              to="/players"
             />
             <StatCard
               id="stat-live"
@@ -87,10 +95,11 @@ export default function Dashboard() {
               icon="📅"
             />
             <StatCard
-              id="stat-completed"
-              label="Completed"
-              value={loading ? '—' : recentMatches.length + '+'}
-              icon="✅"
+              id="stat-matches"
+              label="Total Matches"
+              value={loading ? '—' : totalMatches}
+              icon="🏏"
+              to="/matches"
             />
           </div>
         </div>
@@ -167,19 +176,58 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ id, label, value, icon, highlight }) {
-  return (
-    <div
-      id={id}
-      className={`card p-4 ${highlight ? 'border-emerald-500/30 shadow-emerald-500/10' : ''}`}
-    >
+export function StatCard({ id, label, value, icon, highlight, to, onClick }) {
+  const content = (
+    <>
       <div className="flex items-center gap-2 mb-1">
-        <span>{icon}</span>
-        <span className="text-xs text-gray-500 font-medium">{label}</span>
+        <span className="text-base select-none" aria-hidden="true">{icon}</span>
+        <span className="text-xs text-gray-500 font-medium group-hover:text-gray-400 transition-colors">
+          {label}
+        </span>
       </div>
       <p className={`text-2xl font-black ${highlight ? 'text-emerald-400' : 'text-white'}`}>
         {value}
       </p>
+    </>
+  );
+
+  const baseClasses = `card p-4 transition-all duration-200 text-left ${
+    highlight ? 'border-emerald-500/30 shadow-emerald-500/10' : ''
+  }`;
+
+  const interactiveClasses =
+    'cursor-pointer group hover:border-brand-500/40 hover:bg-surface-700/40 hover:shadow-lg hover:shadow-brand-500/5 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-900 select-none';
+
+  if (to) {
+    return (
+      <Link
+        to={to}
+        id={id}
+        aria-label={`${label}: ${value}`}
+        className={`${baseClasses} block ${interactiveClasses}`}
+      >
+        {content}
+      </Link>
+    );
+  }
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        id={id}
+        onClick={onClick}
+        aria-label={`${label}: ${value}`}
+        className={`${baseClasses} w-full ${interactiveClasses}`}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div id={id} className={baseClasses}>
+      {content}
     </div>
   );
 }

@@ -75,5 +75,8 @@ describe('API Adapter Layer (Compatibility for UI Components)', () => {
 
     const listRes = await matchesApi.list({ status: 'completed' });
     expect(listRes.data.total).toBe(2);
+
+    const countRes = await matchesApi.count();
+    expect(countRes.data).toBe(2);
   });
 });

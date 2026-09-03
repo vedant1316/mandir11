@@ -140,6 +140,20 @@ export async function listMatches(params = {}, db = defaultDb) {
   };
 }
 
+export async function countMatches(params = {}, db = defaultDb) {
+  const { status, sport } = params;
+
+  if (status && sport) {
+    return db.matches.where('status').equals(status).filter((m) => m.sport === sport).count();
+  } else if (status) {
+    return db.matches.where('status').equals(status).count();
+  } else if (sport) {
+    return db.matches.where('sport').equals(sport).count();
+  }
+
+  return db.matches.count();
+}
+
 export async function createTeams(matchId, data, db = defaultDb) {
   const matchRecord = await db.matches.get(matchId);
   if (!matchRecord) {

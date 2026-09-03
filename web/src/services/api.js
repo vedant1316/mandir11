@@ -45,6 +45,10 @@ export const matchesApi = {
     const data = await matchEngine.listMatches(params);
     return { data };
   },
+  count: async (params = {}) => {
+    const data = await matchEngine.countMatches(params);
+    return { data };
+  },
   get: async (id) => {
     const data = await matchEngine.getMatch(id);
     return { data };
