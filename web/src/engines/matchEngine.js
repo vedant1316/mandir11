@@ -307,6 +307,11 @@ export async function calculateMatchMvp(matchId, db = defaultDb) {
     throw new MatchNotFoundError(`Match '${matchId}' not found.`);
   }
 
+  // MVP is only supported for Cricket matches
+  if (match.sport !== 'cricket') {
+    return { playerOfMatchId: null, playerOfMatch: null, mvpScores: [] };
+  }
+
   const teams = await db.teams.where('match_id').equals(matchId).toArray();
   if (teams.length === 0) {
     return { playerOfMatchId: null, playerOfMatch: null, mvpScores: [] };
@@ -448,10 +453,13 @@ export async function endMatch(matchId, data, db = defaultDb) {
     }
   }
 
-  let autoPomId = matchRecord.player_of_match_id;
-  if (targetStatus === 'completed' && !autoPomId) {
-    const mvp = await calculateMatchMvp(matchId, db);
-    autoPomId = mvp.playerOfMatchId;
+  let autoPomId = null;
+  if (matchRecord.sport === 'cricket') {
+    autoPomId = matchRecord.player_of_match_id;
+    if (targetStatus === 'completed' && !autoPomId) {
+      const mvp = await calculateMatchMvp(matchId, db);
+      autoPomId = mvp.playerOfMatchId;
+    }
   }
 
   await db.matches.update(matchId, {
@@ -467,6 +475,10 @@ export async function setPlayerOfMatch(matchId, data, db = defaultDb) {
   const matchRecord = await db.matches.get(matchId);
   if (!matchRecord) {
     throw new MatchNotFoundError(`Match '${matchId}' not found.`);
+  }
+
+  if (matchRecord.sport !== 'cricket') {
+    throw new MatchStateError('Player of the Match is only available for Cricket matches.');
   }
 
   if (matchRecord.status !== 'completed') {

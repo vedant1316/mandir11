@@ -169,9 +169,9 @@ describe('MatchEngine (IndexedDB Local-First)', () => {
     expect(withResult.result.winning_team_id).toBe(teamBId);
   });
 
-  it('sets Player of the Match for participants after match completion', async () => {
+  it('sets Player of the Match for participants after match completion for cricket and rejects non-cricket', async () => {
     const { p1, p2, p3 } = await createTestPlayers();
-    const match = await matchEngine.createMatch({ sport: 'volleyball' });
+    const match = await matchEngine.createMatch({ sport: 'cricket' });
     const withTeams = await matchEngine.createTeams(match.id, {
       teams: [
         { label: 'Team A', player_ids: [p1.id] },
@@ -181,9 +181,9 @@ describe('MatchEngine (IndexedDB Local-First)', () => {
     const teamAId = withTeams.teams.find((t) => t.label === 'Team A').id;
 
     await matchEngine.startMatch(match.id);
-    await matchEngine.enterResult(match.id, {
-      team_a_score: 25,
-      team_b_score: 18,
+    await db.match_results.add({
+      id: 'cricket-test-res',
+      match_id: match.id,
       winning_team_id: teamAId,
     });
     await matchEngine.endMatch(match.id, { reason: 'completed' });
@@ -196,6 +196,26 @@ describe('MatchEngine (IndexedDB Local-First)', () => {
     await expect(
       matchEngine.setPlayerOfMatch(match.id, { player_id: p3.id })
     ).rejects.toThrow(TeamValidationError);
+
+    // Volleyball rejects Player of the Match
+    const vbMatch = await matchEngine.createMatch({ sport: 'volleyball' });
+    const vbWithTeams = await matchEngine.createTeams(vbMatch.id, {
+      teams: [
+        { label: 'Team A', player_ids: [p1.id] },
+        { label: 'Team B', player_ids: [p2.id] },
+      ],
+    });
+    const vbTeamAId = vbWithTeams.teams.find((t) => t.label === 'Team A').id;
+    await matchEngine.startMatch(vbMatch.id);
+    await matchEngine.enterResult(vbMatch.id, {
+      team_a_score: 25,
+      team_b_score: 20,
+      winning_team_id: vbTeamAId,
+    });
+    await matchEngine.endMatch(vbMatch.id, { reason: 'completed' });
+    await expect(
+      matchEngine.setPlayerOfMatch(vbMatch.id, { player_id: p1.id })
+    ).rejects.toThrow(MatchStateError);
   });
 
   it('allows abandoning a match without entering a result', async () => {

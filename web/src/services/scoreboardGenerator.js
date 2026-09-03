@@ -267,66 +267,66 @@ export function generateScoreboardCanvas({ match, scorecard, settlement, allPlay
   ctx.textAlign = 'center';
   ctx.fillText(`👑  ${summaryText.toUpperCase()}`, width / 2, currentY + 41);
 
-  // ─── 5. Player of the Match (MVP) Section ────────────────────────
-  currentY += 88;
+  // ─── 5. Player of the Match (MVP) Section (Cricket Only) ──────────
+  if (isCricket) {
+    currentY += 88;
 
-  const pomId = match.player_of_match_id || scorecard?.playerOfMatch?.id;
-  const pomPlayer = pomId
-    ? allPlayers.find((p) => p.id === pomId) || scorecard?.playerOfMatch
-    : null;
+    const pomId = match.player_of_match_id || scorecard?.playerOfMatch?.id;
+    const pomPlayer = pomId
+      ? allPlayers.find((p) => p.id === pomId) || scorecard?.playerOfMatch
+      : null;
 
-  // Pre-calculate MVP breakdown
-  const mvpScores = scorecard?.mvpDetails?.mvpScores || [];
-  const topMvpScore = mvpScores.find((s) => s.playerId === pomId) || mvpScores[0];
+    // Pre-calculate MVP breakdown
+    const mvpScores = scorecard?.mvpDetails?.mvpScores || [];
+    const topMvpScore = mvpScores.find((s) => s.playerId === pomId) || mvpScores[0];
 
-  ctx.fillStyle = 'rgba(245, 158, 11, 0.1)';
-  drawRoundedRect(ctx, 60, currentY, width - 120, 180, 20, true, false);
-  ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
-  ctx.lineWidth = 1.5;
-  drawRoundedRect(ctx, 60, currentY, width - 120, 180, 20, false, true);
+    ctx.fillStyle = 'rgba(245, 158, 11, 0.1)';
+    drawRoundedRect(ctx, 60, currentY, width - 120, 180, 20, true, false);
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
+    ctx.lineWidth = 1.5;
+    drawRoundedRect(ctx, 60, currentY, width - 120, 180, 20, false, true);
 
-  // MVP Badge
-  ctx.fillStyle = '#F59E0B';
-  ctx.font = 'bold 16px system-ui, -apple-system, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText('⭐ MAN OF THE MATCH (MVP)', 95, currentY + 40);
-
-  if (topMvpScore) {
-    ctx.fillStyle = '#FBBF24';
+    // MVP Badge
+    ctx.fillStyle = '#F59E0B';
     ctx.font = 'bold 16px system-ui, -apple-system, sans-serif';
-    ctx.textAlign = 'right';
-    ctx.fillText(`+${topMvpScore.totalPoints} MVP PTS`, width - 95, currentY + 40);
-  }
+    ctx.textAlign = 'left';
+    ctx.fillText('⭐ MAN OF THE MATCH (MVP)', 95, currentY + 40);
 
-  // MVP Player Name
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '900 32px system-ui, -apple-system, sans-serif';
-  ctx.textAlign = 'left';
-  ctx.fillText(pomPlayer?.name || topMvpScore?.playerName || 'Player of the Match', 95, currentY + 85);
-
-  // Breakdown details
-  if (topMvpScore) {
-    const outcomeText = topMvpScore.outcome === 'win' ? 'Win (+10)' : topMvpScore.outcome === 'tie' ? 'Tie (+5)' : 'Loss (+2)';
-    let statsDetail = `${outcomeText}`;
-    if (isCricket) {
-      statsDetail += ` · Runs: ${topMvpScore.runs} (+${topMvpScore.runPoints}) · Wickets: ${topMvpScore.wickets} (+${topMvpScore.wicketPoints})`;
+    if (topMvpScore) {
+      ctx.fillStyle = '#FBBF24';
+      ctx.font = 'bold 16px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(`+${topMvpScore.totalPoints} MVP PTS`, width - 95, currentY + 40);
     }
 
-    ctx.fillStyle = '#E2E8F0';
-    ctx.font = '16px system-ui, -apple-system, sans-serif';
-    ctx.fillText(statsDetail, 95, currentY + 120);
+    // MVP Player Name
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '900 32px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(pomPlayer?.name || topMvpScore?.playerName || 'Player of the Match', 95, currentY + 85);
 
-    ctx.fillStyle = '#94A3B8';
-    ctx.font = '13px system-ui, -apple-system, sans-serif';
-    ctx.fillText(`Formula: (Win +10 / Loss +2 / Tie +5) + (Runs × 1) + (Wickets × 5)`, 95, currentY + 150);
-  } else {
-    ctx.fillStyle = '#94A3B8';
-    ctx.font = '16px system-ui, -apple-system, sans-serif';
-    ctx.fillText('Recognized for standout colony performance', 95, currentY + 125);
+    // Breakdown details
+    if (topMvpScore) {
+      const outcomeText = topMvpScore.outcome === 'win' ? 'Win (+10)' : topMvpScore.outcome === 'tie' ? 'Tie (+5)' : 'Loss (+2)';
+      const statsDetail = `${outcomeText} · Runs: ${topMvpScore.runs} (+${topMvpScore.runPoints}) · Wickets: ${topMvpScore.wickets} (+${topMvpScore.wicketPoints})`;
+
+      ctx.fillStyle = '#E2E8F0';
+      ctx.font = '16px system-ui, -apple-system, sans-serif';
+      ctx.fillText(statsDetail, 95, currentY + 120);
+
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = '13px system-ui, -apple-system, sans-serif';
+      ctx.fillText(`Formula: (Win +10 / Loss +2 / Tie +5) + (Runs × 1) + (Wickets × 5)`, 95, currentY + 150);
+    } else {
+      ctx.fillStyle = '#94A3B8';
+      ctx.font = '16px system-ui, -apple-system, sans-serif';
+      ctx.fillText('Recognized for standout colony performance', 95, currentY + 125);
+    }
+
+    currentY += 205;
   }
 
   // ─── 6. Key Performers / Top Contributions (Cricket) ─────────────
-  currentY += 205;
 
   if (isCricket && scorecard && scorecard.innings?.length > 0) {
     // Find top batter and top bowler across all innings

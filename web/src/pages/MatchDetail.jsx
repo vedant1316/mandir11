@@ -220,8 +220,8 @@ export default function MatchDetail() {
             </div>
           )}
 
-          {/* Player of Match */}
-          {pomPlayerObj && (
+          {/* Player of Match (Cricket only) */}
+          {match.sport === 'cricket' && pomPlayerObj && (
             <div id="player-of-match" className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between text-sm">
               <div className="flex items-center gap-2.5">
                 <span className="text-xl">⭐</span>
@@ -553,8 +553,8 @@ export default function MatchDetail() {
             </button>
           )}
 
-          {/* Player of Match selection for completed match */}
-          {match.status === 'completed' && !match.player_of_match_id && (
+          {/* Player of Match selection for completed cricket match */}
+          {match.sport === 'cricket' && match.status === 'completed' && !match.player_of_match_id && (
             <div className="card p-5">
               <h3 className="section-title mb-4">⭐ Select Player of the Match</h3>
               <select

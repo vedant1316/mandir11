@@ -567,3 +567,510 @@ export async function getLeaderboardSummary(db = defaultDb, rules = defaultRules
     topRankings: overall.rankings.slice(0, 5),
   };
 }
+
+/**
+ * Dynamically computes interesting colony-wide statistics from completed match records:
+ * - 🏆 Most Matches Won
+ * - 📈 Best Win Percentage (with min matches threshold)
+ * - 🔥 Longest Winning Streak
+ * - 🎯 Most Matches Played
+ * - 🏏 Most Runs
+ * - 🎳 Most Wickets
+ * - 🤝 Best Team Combination (highest win rate lineup)
+ * - 💪 Most Successful Player Pair (duo with most wins together)
+ * - 😈 Unluckiest Player (most losses)
+ * - 🏟️ Sport-wise stats for Cricket, Volleyball, and Badminton
+ */
+export async function getColonyInterestingStats(db = defaultDb) {
+  const completedMatches = await db.matches.where('status').equals('completed').toArray();
+  const allPlayers = await db.players.toArray();
+  const playerMap = new Map(allPlayers.map((p) => [p.id, p]));
+
+  // Early return empty states if no completed matches
+  if (completedMatches.length === 0) {
+    return {
+      summary: {
+        totalCompletedMatches: 0,
+        sportBreakdown: { cricket: 0, volleyball: 0, badminton: 0 },
+        totalPlayers: allPlayers.length,
+      },
+      mostWins: { leader: null, rankings: [], insight: 'No completed matches yet.' },
+      bestWinPercentage: { leader: null, minMatchesThreshold: 3, rankings: [], insight: 'Play at least 3 matches to unlock win rate rankings.' },
+      longestStreak: { leader: null, rankings: [], insight: 'No streaks recorded yet.' },
+      mostMatches: { leader: null, rankings: [], insight: 'No matches played yet.' },
+      mostRuns: { leader: null, rankings: [], insight: 'No cricket runs recorded yet.' },
+      mostWickets: { leader: null, rankings: [], insight: 'No cricket wickets recorded yet.' },
+      bestTeamCombination: { leader: null, rankings: [], insight: 'No team combinations recorded yet.' },
+      bestPlayerPair: { leader: null, rankings: [], insight: 'No player pairs recorded yet.' },
+      unluckiestPlayer: { leader: null, rankings: [], insight: 'No match losses recorded yet.' },
+      sports: {
+        cricket: { matches: 0, topWinner: null, topBatter: null, topBowler: null, highestIndividualScore: null, totalRuns: 0, totalWickets: 0 },
+        volleyball: { matches: 0, topWinner: null, bestWinRate: null, mostMatches: null },
+        badminton: { matches: 0, topWinner: null, bestWinRate: null, mostMatches: null },
+      },
+    };
+  }
+
+  // Pre-load supporting records
+  const results = await db.match_results.toArray();
+  const resultMap = new Map(results.map((r) => [r.match_id, r]));
+
+  const teams = await db.teams.toArray();
+  const teamPlayers = await db.team_players.toArray();
+
+  // Map teamId -> array of playerIds
+  const teamPlayersByTeam = new Map();
+  for (const tp of teamPlayers) {
+    const arr = teamPlayersByTeam.get(tp.team_id) || [];
+    arr.push(tp.player_id);
+    teamPlayersByTeam.set(tp.team_id, arr);
+  }
+
+  // Map matchId -> array of { team, playerIds }
+  const matchTeamsMap = new Map();
+  for (const t of teams) {
+    const pIds = teamPlayersByTeam.get(t.id) || [];
+    const arr = matchTeamsMap.get(t.match_id) || [];
+    arr.push({ team: t, playerIds: pIds });
+    matchTeamsMap.set(t.match_id, arr);
+  }
+
+  // Sort completed matches chronologically (oldest to newest)
+  completedMatches.sort((a, b) => new Date(a.date || a.created_at) - new Date(b.date || b.created_at));
+  const completedMatchIds = new Set(completedMatches.map((m) => m.id));
+
+  // Sport breakdown
+  const sportBreakdown = { cricket: 0, volleyball: 0, badminton: 0 };
+  for (const m of completedMatches) {
+    if (sportBreakdown[m.sport] !== undefined) {
+      sportBreakdown[m.sport]++;
+    }
+  }
+
+  // Per-player stats tracking
+  const playerStats = new Map();
+  for (const p of allPlayers) {
+    playerStats.set(p.id, {
+      player: p,
+      matches: 0,
+      wins: 0,
+      losses: 0,
+      ties: 0,
+      matchOutcomes: [],
+      sports: {
+        cricket: { matches: 0, wins: 0, losses: 0, ties: 0 },
+        volleyball: { matches: 0, wins: 0, losses: 0, ties: 0 },
+        badminton: { matches: 0, wins: 0, losses: 0, ties: 0 },
+      },
+    });
+  }
+
+  // Pair tracking: key = "p1Id___p2Id" (sorted)
+  const pairStats = new Map();
+  // Team combination tracking: key = "id1___id2___id3" (sorted)
+  const lineupStats = new Map();
+
+  for (const m of completedMatches) {
+    const res = resultMap.get(m.id);
+    const winningTeamId = res?.winning_team_id || null;
+    const mTeams = matchTeamsMap.get(m.id) || [];
+
+    for (const { team, playerIds } of mTeams) {
+      const isWinner = winningTeamId ? team.id === winningTeamId : false;
+      const isTie = !winningTeamId;
+      const outcome = isWinner ? 'won' : isTie ? 'tied' : 'lost';
+
+      // Update individual player stats
+      for (const pId of playerIds) {
+        let pEntry = playerStats.get(pId);
+        if (!pEntry) {
+          const pl = playerMap.get(pId) || { id: pId, name: 'Unknown' };
+          pEntry = {
+            player: pl,
+            matches: 0,
+            wins: 0,
+            losses: 0,
+            ties: 0,
+            matchOutcomes: [],
+            sports: {
+              cricket: { matches: 0, wins: 0, losses: 0, ties: 0 },
+              volleyball: { matches: 0, wins: 0, losses: 0, ties: 0 },
+              badminton: { matches: 0, wins: 0, losses: 0, ties: 0 },
+            },
+          };
+          playerStats.set(pId, pEntry);
+        }
+
+        pEntry.matches++;
+        pEntry.matchOutcomes.push(outcome);
+        if (isWinner) pEntry.wins++;
+        else if (isTie) pEntry.ties++;
+        else pEntry.losses++;
+
+        if (pEntry.sports[m.sport]) {
+          pEntry.sports[m.sport].matches++;
+          if (isWinner) pEntry.sports[m.sport].wins++;
+          else if (isTie) pEntry.sports[m.sport].ties++;
+          else pEntry.sports[m.sport].losses++;
+        }
+      }
+
+      // Track player pairs (teams with >= 2 players)
+      if (playerIds.length >= 2) {
+        const sortedIds = [...playerIds].sort();
+        for (let i = 0; i < sortedIds.length; i++) {
+          for (let j = i + 1; j < sortedIds.length; j++) {
+            const p1Id = sortedIds[i];
+            const p2Id = sortedIds[j];
+            const pairKey = `${p1Id}___${p2Id}`;
+            let pair = pairStats.get(pairKey);
+            if (!pair) {
+              pair = {
+                player1: playerMap.get(p1Id) || { id: p1Id, name: 'Unknown' },
+                player2: playerMap.get(p2Id) || { id: p2Id, name: 'Unknown' },
+                matchesTogether: 0,
+                winsTogether: 0,
+                lossesTogether: 0,
+                tiesTogether: 0,
+                winRate: 0,
+              };
+              pairStats.set(pairKey, pair);
+            }
+            pair.matchesTogether++;
+            if (isWinner) pair.winsTogether++;
+            else if (isTie) pair.tiesTogether++;
+            else pair.lossesTogether++;
+            pair.winRate = Math.round((pair.winsTogether / pair.matchesTogether) * 1000) / 10;
+          }
+        }
+
+        // Track full team lineup combinations (size >= 2)
+        const lineupKey = sortedIds.join('___');
+        let lineup = lineupStats.get(lineupKey);
+        if (!lineup) {
+          lineup = {
+            playerIds: sortedIds,
+            players: sortedIds.map((id) => playerMap.get(id) || { id, name: 'Unknown' }),
+            playerNames: sortedIds.map((id) => playerMap.get(id)?.name || 'Unknown'),
+            matches: 0,
+            wins: 0,
+            losses: 0,
+            ties: 0,
+            winRate: 0,
+          };
+          lineupStats.set(lineupKey, lineup);
+        }
+        lineup.matches++;
+        if (isWinner) lineup.wins++;
+        else if (isTie) lineup.ties++;
+        else lineup.losses++;
+        lineup.winRate = Math.round((lineup.wins / lineup.matches) * 1000) / 10;
+      }
+    }
+  }
+
+  // Pre-load cricket balls & overs for runs, wickets, and highest individual scores
+  const playerRuns = new Map();
+  const playerWickets = new Map();
+  let highestIndividualScore = null;
+  let totalCricketRuns = 0;
+  let totalCricketWickets = 0;
+
+  const inningsList = await db.innings.toArray();
+  const completedInnings = inningsList.filter((inn) => completedMatchIds.has(inn.match_id));
+  const completedInningsIds = new Set(completedInnings.map((inn) => inn.id));
+
+  const oversList = await db.overs.toArray();
+  const completedOvers = oversList.filter((o) => completedInningsIds.has(o.innings_id));
+  const overBowlerMap = new Map(completedOvers.map((o) => [o.id, o.bowler_id]));
+
+  const ballsList = await db.balls.toArray();
+  const completedBalls = ballsList.filter((b) => completedInningsIds.has(b.innings_id));
+
+  const batterInningsMap = new Map();
+
+  for (const b of completedBalls) {
+    const bRuns = b.runs || 0;
+    if (b.batter_id) {
+      const current = playerRuns.get(b.batter_id) || 0;
+      playerRuns.set(b.batter_id, current + bRuns);
+      totalCricketRuns += bRuns;
+
+      const innKey = `${b.innings_id}_${b.batter_id}`;
+      const innRuns = (batterInningsMap.get(innKey) || 0) + bRuns;
+      batterInningsMap.set(innKey, innRuns);
+
+      if (!highestIndividualScore || innRuns > highestIndividualScore.runs) {
+        highestIndividualScore = {
+          player: playerMap.get(b.batter_id) || { id: b.batter_id, name: 'Unknown' },
+          runs: innRuns,
+          inningsId: b.innings_id,
+        };
+      }
+    }
+
+    if (b.is_wicket && b.dismissal_type !== 'run_out' && b.over_id) {
+      const bowlerId = overBowlerMap.get(b.over_id);
+      if (bowlerId) {
+        const current = playerWickets.get(bowlerId) || 0;
+        playerWickets.set(bowlerId, current + 1);
+        totalCricketWickets++;
+      }
+    }
+  }
+
+  // Finalize active players stats
+  const activePlayersStats = [];
+  for (const [, st] of playerStats.entries()) {
+    if (st.matches === 0) continue;
+    st.winPercentage = Math.round((st.wins / st.matches) * 1000) / 10;
+    st.streaks = calculateStreaks(st.matchOutcomes);
+    st.runs = playerRuns.get(st.player.id) || 0;
+    st.wickets = playerWickets.get(st.player.id) || 0;
+    activePlayersStats.push(st);
+  }
+
+  // 1. Most Matches Won
+  const mostWinsSorted = [...activePlayersStats].sort((a, b) => {
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    if (b.winPercentage !== a.winPercentage) return b.winPercentage - a.winPercentage;
+    return (a.player.name || '').localeCompare(b.player.name || '');
+  });
+  const mostWinsLeader = mostWinsSorted[0] || null;
+  const mostWinsInsight = mostWinsLeader && mostWinsLeader.wins > 0
+    ? `${mostWinsLeader.player.name} leads the colony with ${mostWinsLeader.wins} match victories 🏆`
+    : 'No match wins recorded yet.';
+
+  // 2. Best Win Percentage (reasonable minimum threshold: 3 matches, or max available if < 3)
+  const minMatchesThreshold = completedMatches.length >= 3 ? 3 : 1;
+  const eligibleWinPct = activePlayersStats.filter((p) => p.matches >= minMatchesThreshold);
+  const bestWinPctSorted = [...eligibleWinPct].sort((a, b) => {
+    if (b.winPercentage !== a.winPercentage) return b.winPercentage - a.winPercentage;
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    return b.matches - a.matches;
+  });
+  const bestWinPctLeader = bestWinPctSorted[0] || null;
+  const bestWinPctInsight = bestWinPctLeader
+    ? `${bestWinPctLeader.player.name} boasts an elite ${bestWinPctLeader.winPercentage}% win rate (${bestWinPctLeader.wins}W / ${bestWinPctLeader.matches}M).`
+    : 'Not enough matches to determine best win percentage.';
+
+  // 3. Longest Winning Streak
+  const streakSorted = [...activePlayersStats].sort((a, b) => {
+    const aBest = a.streaks.bestWinStreak;
+    const bBest = b.streaks.bestWinStreak;
+    if (bBest !== aBest) return bBest - aBest;
+    return b.wins - a.wins;
+  });
+  const streakLeader = streakSorted[0] && streakSorted[0].streaks.bestWinStreak > 0 ? streakSorted[0] : null;
+  const streakInsight = streakLeader
+    ? `${streakLeader.player.name} holds the colony record with a ${streakLeader.streaks.bestWinStreak}-match win streak 🔥`
+    : 'No active or historical winning streaks recorded yet.';
+
+  // 4. Most Matches Played
+  const mostMatchesSorted = [...activePlayersStats].sort((a, b) => {
+    if (b.matches !== a.matches) return b.matches - a.matches;
+    return b.wins - a.wins;
+  });
+  const mostMatchesLeader = mostMatchesSorted[0] || null;
+  const mostMatchesInsight = mostMatchesLeader
+    ? `${mostMatchesLeader.player.name} is the colony workhorse with ${mostMatchesLeader.matches} appearances 🎯`
+    : 'No matches played yet.';
+
+  // 5. Most Runs (Cricket)
+  const mostRunsSorted = [...activePlayersStats]
+    .filter((p) => p.runs > 0)
+    .sort((a, b) => b.runs - a.runs);
+  const mostRunsLeader = mostRunsSorted[0] || null;
+  const mostRunsInsight = mostRunsLeader
+    ? `${mostRunsLeader.player.name} is the colony's leading run machine with ${mostRunsLeader.runs} runs 🏏`
+    : 'No cricket runs scored yet.';
+
+  // 6. Most Wickets (Cricket)
+  const mostWicketsSorted = [...activePlayersStats]
+    .filter((p) => p.wickets > 0)
+    .sort((a, b) => b.wickets - a.wickets);
+  const mostWicketsLeader = mostWicketsSorted[0] || null;
+  const mostWicketsInsight = mostWicketsLeader
+    ? `${mostWicketsLeader.player.name} has claimed ${mostWicketsLeader.wickets} wickets 🎳`
+    : 'No cricket wickets taken yet.';
+
+  // 7. Best Team Combination
+  const allLineups = Array.from(lineupStats.values());
+  const hasMultiMatch = allLineups.some((l) => l.matches >= 2);
+  const eligibleLineups = hasMultiMatch ? allLineups.filter((l) => l.matches >= 2) : allLineups;
+  eligibleLineups.sort((a, b) => {
+    if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    return b.matches - a.matches;
+  });
+  const bestLineupLeader = eligibleLineups[0] || null;
+  const bestLineupInsight = bestLineupLeader
+    ? `${bestLineupLeader.playerNames.join(' + ')} have the highest synergy: ${bestLineupLeader.winRate}% win rate over ${bestLineupLeader.matches} matches 🤝`
+    : 'No team combinations recorded yet.';
+
+  // 8. Most Successful Player Pair
+  const allPairs = Array.from(pairStats.values());
+  allPairs.sort((a, b) => {
+    if (b.winsTogether !== a.winsTogether) return b.winsTogether - a.winsTogether;
+    if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+    return b.matchesTogether - a.matchesTogether;
+  });
+  const bestPairLeader = allPairs[0] && allPairs[0].winsTogether > 0 ? allPairs[0] : null;
+  const bestPairInsight = bestPairLeader
+    ? `${bestPairLeader.player1.name} and ${bestPairLeader.player2.name} are the deadliest duo 🔥 – ${bestPairLeader.winsTogether} wins together.`
+    : 'No player pairs have won together yet.';
+
+  // 9. Unluckiest Player
+  const unluckiestSorted = [...activePlayersStats]
+    .filter((p) => p.losses > 0)
+    .sort((a, b) => {
+      if (b.losses !== a.losses) return b.losses - a.losses;
+      return (b.losses / b.matches) - (a.losses / a.matches);
+    });
+  const unluckiestLeader = unluckiestSorted[0] || null;
+  const unluckiestInsight = unluckiestLeader
+    ? `${unluckiestLeader.player.name} has suffered ${unluckiestLeader.losses} losses. Tough luck! Better days ahead 💪`
+    : 'No player has lost a match yet.';
+
+  // 10. Sport-Wise Highlights
+  // Cricket
+  const cricketWinners = [...activePlayersStats]
+    .filter((p) => p.sports.cricket.wins > 0)
+    .sort((a, b) => b.sports.cricket.wins - a.sports.cricket.wins);
+  const cricketTopWinner = cricketWinners[0] || null;
+
+  // Volleyball
+  const vbPlayers = activePlayersStats.filter((p) => p.sports.volleyball.matches > 0);
+  const vbWinners = [...vbPlayers]
+    .filter((p) => p.sports.volleyball.wins > 0)
+    .sort((a, b) => b.sports.volleyball.wins - a.sports.volleyball.wins);
+  const vbTopWinner = vbWinners[0] || null;
+
+  const vbWinRateSorted = [...vbPlayers].sort((a, b) => {
+    const aRate = a.sports.volleyball.matches > 0 ? a.sports.volleyball.wins / a.sports.volleyball.matches : 0;
+    const bRate = b.sports.volleyball.matches > 0 ? b.sports.volleyball.wins / b.sports.volleyball.matches : 0;
+    if (bRate !== aRate) return bRate - aRate;
+    return b.sports.volleyball.wins - a.sports.volleyball.wins;
+  });
+  const vbBestWinRate = vbWinRateSorted[0]
+    ? {
+        player: vbWinRateSorted[0].player,
+        winRate: Math.round((vbWinRateSorted[0].sports.volleyball.wins / vbWinRateSorted[0].sports.volleyball.matches) * 1000) / 10,
+        matches: vbWinRateSorted[0].sports.volleyball.matches,
+      }
+    : null;
+
+  const vbMostMatchesSorted = [...vbPlayers].sort((a, b) => b.sports.volleyball.matches - a.sports.volleyball.matches);
+  const vbMostMatches = vbMostMatchesSorted[0]
+    ? {
+        player: vbMostMatchesSorted[0].player,
+        matches: vbMostMatchesSorted[0].sports.volleyball.matches,
+      }
+    : null;
+
+  // Badminton
+  const bmPlayers = activePlayersStats.filter((p) => p.sports.badminton.matches > 0);
+  const bmWinners = [...bmPlayers]
+    .filter((p) => p.sports.badminton.wins > 0)
+    .sort((a, b) => b.sports.badminton.wins - a.sports.badminton.wins);
+  const bmTopWinner = bmWinners[0] || null;
+
+  const bmWinRateSorted = [...bmPlayers].sort((a, b) => {
+    const aRate = a.sports.badminton.matches > 0 ? a.sports.badminton.wins / a.sports.badminton.matches : 0;
+    const bRate = b.sports.badminton.matches > 0 ? b.sports.badminton.wins / b.sports.badminton.matches : 0;
+    if (bRate !== aRate) return bRate - aRate;
+    return b.sports.badminton.wins - a.sports.badminton.wins;
+  });
+  const bmBestWinRate = bmWinRateSorted[0]
+    ? {
+        player: bmWinRateSorted[0].player,
+        winRate: Math.round((bmWinRateSorted[0].sports.badminton.wins / bmWinRateSorted[0].sports.badminton.matches) * 1000) / 10,
+        matches: bmWinRateSorted[0].sports.badminton.matches,
+      }
+    : null;
+
+  const bmMostMatchesSorted = [...bmPlayers].sort((a, b) => b.sports.badminton.matches - a.sports.badminton.matches);
+  const bmMostMatches = bmMostMatchesSorted[0]
+    ? {
+        player: bmMostMatchesSorted[0].player,
+        matches: bmMostMatchesSorted[0].sports.badminton.matches,
+      }
+    : null;
+
+  return {
+    summary: {
+      totalCompletedMatches: completedMatches.length,
+      sportBreakdown,
+      totalPlayers: allPlayers.length,
+    },
+    mostWins: {
+      leader: mostWinsLeader,
+      rankings: mostWinsSorted.slice(0, 5),
+      insight: mostWinsInsight,
+    },
+    bestWinPercentage: {
+      leader: bestWinPctLeader,
+      minMatchesThreshold,
+      rankings: bestWinPctSorted.slice(0, 5),
+      insight: bestWinPctInsight,
+    },
+    longestStreak: {
+      leader: streakLeader,
+      rankings: streakSorted.filter((p) => p.streaks.bestWinStreak > 0).slice(0, 5),
+      insight: streakInsight,
+    },
+    mostMatches: {
+      leader: mostMatchesLeader,
+      rankings: mostMatchesSorted.slice(0, 5),
+      insight: mostMatchesInsight,
+    },
+    mostRuns: {
+      leader: mostRunsLeader,
+      rankings: mostRunsSorted.slice(0, 5),
+      insight: mostRunsInsight,
+    },
+    mostWickets: {
+      leader: mostWicketsLeader,
+      rankings: mostWicketsSorted.slice(0, 5),
+      insight: mostWicketsInsight,
+    },
+    bestTeamCombination: {
+      leader: bestLineupLeader,
+      rankings: eligibleLineups.slice(0, 5),
+      insight: bestLineupInsight,
+    },
+    bestPlayerPair: {
+      leader: bestPairLeader,
+      rankings: allPairs.slice(0, 5),
+      insight: bestPairInsight,
+    },
+    unluckiestPlayer: {
+      leader: unluckiestLeader,
+      rankings: unluckiestSorted.slice(0, 5),
+      insight: unluckiestInsight,
+    },
+    sports: {
+      cricket: {
+        matches: sportBreakdown.cricket,
+        topWinner: cricketTopWinner ? { player: cricketTopWinner.player, wins: cricketTopWinner.sports.cricket.wins } : null,
+        topBatter: mostRunsLeader ? { player: mostRunsLeader.player, runs: mostRunsLeader.runs } : null,
+        topBowler: mostWicketsLeader ? { player: mostWicketsLeader.player, wickets: mostWicketsLeader.wickets } : null,
+        highestIndividualScore,
+        totalRuns: totalCricketRuns,
+        totalWickets: totalCricketWickets,
+      },
+      volleyball: {
+        matches: sportBreakdown.volleyball,
+        topWinner: vbTopWinner ? { player: vbTopWinner.player, wins: vbTopWinner.sports.volleyball.wins } : null,
+        bestWinRate: vbBestWinRate,
+        mostMatches: vbMostMatches,
+      },
+      badminton: {
+        matches: sportBreakdown.badminton,
+        topWinner: bmTopWinner ? { player: bmTopWinner.player, wins: bmTopWinner.sports.badminton.wins } : null,
+        bestWinRate: bmBestWinRate,
+        mostMatches: bmMostMatches,
+      },
+    },
+  };
+}

@@ -199,15 +199,15 @@ describe('Automatic MVP, Redesigned Rankings & Team Reuse', () => {
     expect(p1Score.totalPoints).toBe(47);
   });
 
-  // ── 3. Deterministic Tie-Breaking ───────────────────────────────
+  // ── 3. Deterministic Tie-Breaking (Cricket) ─────────────────────
 
-  it('handles MVP score ties deterministically by wickets, runs, and name', async () => {
+  it('handles MVP score ties deterministically by wickets, runs, and name in cricket', async () => {
     const { p1, p2, p3, p4 } = await createTestPlayers();
 
-    // Volleyball match: Team A wins
-    // p1 and p2 both on Team A -> both get 10 pts (0 runs, 0 wickets)
-    // Deterministic tie-breaker selects p1 ('Rohit' vs 'Virat' -> 'Rohit' comes first alphabetically, or Virat depending on names)
-    const m = await matchEngine.createMatch({ sport: 'volleyball' });
+    // Cricket match: Team A wins
+    // p1 (Virat) and p2 (Rohit) both on Team A -> both get 10 pts (0 runs, 0 wickets)
+    // Deterministic tie-breaker selects p2 ('Rohit' comes before 'Virat' alphabetically)
+    const m = await matchEngine.createMatch({ sport: 'cricket' });
     const t = await matchEngine.createTeams(m.id, {
       teams: [
         { label: 'Team A', player_ids: [p1.id, p2.id] },
@@ -216,9 +216,9 @@ describe('Automatic MVP, Redesigned Rankings & Team Reuse', () => {
     });
     const teamA = t.teams.find((tm) => tm.label === 'Team A');
     await matchEngine.startMatch(m.id);
-    await matchEngine.enterResult(m.id, {
-      team_a_score: 25,
-      team_b_score: 20,
+    await db.match_results.add({
+      id: 'cricket-tie-res',
+      match_id: m.id,
       winning_team_id: teamA.id,
     });
     const completed = await matchEngine.endMatch(m.id, { reason: 'completed' });
@@ -228,6 +228,66 @@ describe('Automatic MVP, Redesigned Rankings & Team Reuse', () => {
 
     // Rohit ('Rohit') vs Virat ('Virat') -> 'Rohit' < 'Virat' alphabetically
     expect(completed.player_of_match_id).toBe(p2.id);
+  });
+
+  // ── 3.1. Volleyball & Badminton Have No MVP ─────────────────────
+
+  it('does not calculate, store, or return MVP for Volleyball and Badminton', async () => {
+    const { p1, p2, p3, p4 } = await createTestPlayers();
+
+    // 1. Volleyball Match Completion
+    const vb = await matchEngine.createMatch({ sport: 'volleyball' });
+    const vbTeams = await matchEngine.createTeams(vb.id, {
+      teams: [
+        { label: 'Team A', player_ids: [p1.id, p2.id] },
+        { label: 'Team B', player_ids: [p3.id, p4.id] },
+      ],
+    });
+    const vbTeamA = vbTeams.teams.find((tm) => tm.label === 'Team A');
+    await matchEngine.startMatch(vb.id);
+    await matchEngine.enterResult(vb.id, {
+      team_a_score: 25,
+      team_b_score: 18,
+      winning_team_id: vbTeamA.id,
+    });
+    const vbCompleted = await matchEngine.endMatch(vb.id, { reason: 'completed' });
+
+    // Assert NO MVP is stored
+    expect(vbCompleted.status).toBe('completed');
+    expect(vbCompleted.player_of_match_id).toBeNull();
+
+    // Assert calculateMatchMvp returns null/empty
+    const vbMvp = await matchEngine.calculateMatchMvp(vb.id);
+    expect(vbMvp.playerOfMatchId).toBeNull();
+    expect(vbMvp.playerOfMatch).toBeNull();
+    expect(vbMvp.mvpScores).toEqual([]);
+
+    // 2. Badminton Match Completion
+    const bm = await matchEngine.createMatch({ sport: 'badminton' });
+    const bmTeams = await matchEngine.createTeams(bm.id, {
+      teams: [
+        { label: 'Team A', player_ids: [p1.id] },
+        { label: 'Team B', player_ids: [p3.id] },
+      ],
+    });
+    const bmTeamA = bmTeams.teams.find((tm) => tm.label === 'Team A');
+    await matchEngine.startMatch(bm.id);
+    await matchEngine.enterResult(bm.id, {
+      team_a_score: 21,
+      team_b_score: 15,
+      winning_team_id: bmTeamA.id,
+    });
+    const bmCompleted = await matchEngine.endMatch(bm.id, { reason: 'completed' });
+
+    // Assert NO MVP is stored
+    expect(bmCompleted.status).toBe('completed');
+    expect(bmCompleted.player_of_match_id).toBeNull();
+
+    // Assert calculateMatchMvp returns null/empty
+    const bmMvp = await matchEngine.calculateMatchMvp(bm.id);
+    expect(bmMvp.playerOfMatchId).toBeNull();
+    expect(bmMvp.playerOfMatch).toBeNull();
+    expect(bmMvp.mvpScores).toEqual([]);
   });
 
   // ── 4. Dynamic Rankings Point Formula (+10W, +2L, +5T, +1R, +5Wkt)

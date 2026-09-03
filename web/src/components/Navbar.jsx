@@ -5,6 +5,7 @@ const navItems = [
   { to: '/matches', label: 'Matches', id: 'nav-matches' },
   { to: '/tournaments', label: 'Tournaments', id: 'nav-tournaments' },
   { to: '/rankings', label: 'Rankings', id: 'nav-rankings' },
+  { to: '/stats', label: 'Stats', id: 'nav-stats' },
   { to: '/players', label: 'Players', id: 'nav-players' },
   { to: '/ledger', label: 'Ledger', id: 'nav-ledger' },
   { to: '/settings', label: 'Settings', id: 'nav-settings' },

@@ -50,10 +50,30 @@ describe('API Adapter Layer (Compatibility for UI Components)', () => {
     const endRes = await matchesApi.end(matchRes.data.id, 'completed');
     expect(endRes.data.status).toBe('completed');
 
-    const pomRes = await matchesApi.setPlayerOfMatch(matchRes.data.id, p1Res.data.id);
+    // Volleyball rejects Player of the Match
+    await expect(
+      matchesApi.setPlayerOfMatch(matchRes.data.id, p1Res.data.id)
+    ).rejects.toThrow();
+
+    // Cricket match for setPlayerOfMatch
+    const cMatchRes = await matchesApi.create('cricket');
+    const cTeamsRes = await matchesApi.createTeams(cMatchRes.data.id, [
+      { label: 'Team A', player_ids: [p1Res.data.id] },
+      { label: 'Team B', player_ids: [p2Res.data.id] },
+    ]);
+    const cTeamAId = cTeamsRes.data.teams.find((t) => t.label === 'Team A').id;
+    await matchesApi.start(cMatchRes.data.id);
+    await db.match_results.add({
+      id: 'cricket-adapter-res',
+      match_id: cMatchRes.data.id,
+      winning_team_id: cTeamAId,
+    });
+    await matchesApi.end(cMatchRes.data.id, 'completed');
+
+    const pomRes = await matchesApi.setPlayerOfMatch(cMatchRes.data.id, p1Res.data.id);
     expect(pomRes.data.player_of_match_id).toBe(p1Res.data.id);
 
     const listRes = await matchesApi.list({ status: 'completed' });
-    expect(listRes.data.total).toBe(1);
+    expect(listRes.data.total).toBe(2);
   });
 });

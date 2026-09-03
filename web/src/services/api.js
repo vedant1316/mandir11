@@ -212,6 +212,10 @@ export const statsApi = {
     const data = await statsEngine.getLeaderboardSummary();
     return { data };
   },
+  getColonyInterestingStats: async () => {
+    const data = await statsEngine.getColonyInterestingStats();
+    return { data };
+  },
 };
 
 // ─── Tournaments API (Local-First Adapter) ────────────────────────────────────
