@@ -81,4 +81,21 @@ describe('Dashboard Matches Count & Stat Cards', () => {
     const totalAll = await matchEngine.countMatches();
     expect(totalAll).toBe(5);
   });
+
+  it('filters matches by status for live and upcoming stat card links', async () => {
+    await db.matches.bulkAdd([
+      { id: 'm1', sport: 'cricket', status: 'live', date: '2026-09-01' },
+      { id: 'm2', sport: 'volleyball', status: 'live', date: '2026-09-02' },
+      { id: 'm3', sport: 'cricket', status: 'upcoming', date: '2026-09-03' },
+      { id: 'm4', sport: 'badminton', status: 'completed', date: '2026-09-04' },
+    ]);
+
+    const liveRes = await matchesApi.list({ status: 'live' });
+    expect(liveRes.data.matches.length).toBe(2);
+    expect(liveRes.data.matches.map((m) => m.id)).toEqual(['m2', 'm1']);
+
+    const upcomingRes = await matchesApi.list({ status: 'upcoming' });
+    expect(upcomingRes.data.matches.length).toBe(1);
+    expect(upcomingRes.data.matches[0].id).toBe('m3');
+  });
 });

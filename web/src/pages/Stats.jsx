@@ -109,16 +109,16 @@ export default function Stats() {
           {/* Colony Match Summary Badges */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="px-3 py-1.5 rounded-xl bg-surface-700/80 border border-surface-600 text-xs font-semibold text-gray-200">
-              🎮 <span className="text-white font-bold">{summary.totalCompletedMatches}</span> Matches
+              🎮 <span className="text-white font-bold">{summary?.totalCompletedMatches ?? 0}</span> Matches
             </div>
             <div className="px-3 py-1.5 rounded-xl bg-brand-500/10 border border-brand-500/30 text-xs font-semibold text-brand-300">
-              🏏 <span className="font-bold">{summary.sportBreakdown.cricket}</span> Cricket
+              🏏 <span className="font-bold">{summary?.sportBreakdown?.cricket ?? 0}</span> Cricket
             </div>
             <div className="px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs font-semibold text-amber-300">
-              🏐 <span className="font-bold">{summary.sportBreakdown.volleyball}</span> Volleyball
+              🏐 <span className="font-bold">{summary?.sportBreakdown?.volleyball ?? 0}</span> Volleyball
             </div>
             <div className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs font-semibold text-emerald-300">
-              🏸 <span className="font-bold">{summary.sportBreakdown.badminton}</span> Badminton
+              🏸 <span className="font-bold">{summary?.sportBreakdown?.badminton ?? 0}</span> Badminton
             </div>
           </div>
         </div>

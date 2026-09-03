@@ -87,12 +87,14 @@ export default function Dashboard() {
               value={loading ? '—' : liveMatches.length}
               icon="🔴"
               highlight={liveMatches.length > 0}
+              to="/matches?status=live"
             />
             <StatCard
               id="stat-upcoming"
               label="Upcoming"
               value={loading ? '—' : upcomingMatches.length}
               icon="📅"
+              to="/matches?status=upcoming"
             />
             <StatCard
               id="stat-matches"

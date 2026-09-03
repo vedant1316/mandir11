@@ -22,6 +22,8 @@ describe('BackupEngine (Export, Import, Validation, Reset)', () => {
     await db.ledger_entries.clear();
     await db.tournaments.clear();
     await db.fixtures.clear();
+    await db.ledger_payments.clear();
+    await db.debt_adjustments.clear();
   });
 
   async function seedCompleteDatabase() {
@@ -52,10 +54,17 @@ describe('BackupEngine (Export, Import, Validation, Reset)', () => {
     await cricketScorer.recordBall({ matchId: match.id, inningsId: inn.innings.id, runs: 6 });
     await cricketScorer.recordBall({ matchId: match.id, inningsId: inn.innings.id, runs: 4 });
 
-    // 2. Ledger Entries
+    // 2. Ledger Entries & Settlement Payments
     await ledgerEngine.setMatchLedger(match.id, [
       { player_a_id: p1.id, player_b_id: p3.id, amount: 100 },
     ]);
+    await ledgerEngine.recordPayment({
+      matchId: match.id,
+      fromPlayerId: p1.id,
+      toPlayerId: p3.id,
+      amount: 50,
+      note: 'Partial cash payment',
+    });
 
     // 3. Tournament & Fixtures
     const tournament = await tournamentEngine.createTournament({
@@ -73,7 +82,7 @@ describe('BackupEngine (Export, Import, Validation, Reset)', () => {
 
   // ── 1. Exporting Backup ────────────────────────────────────────
 
-  it('exports a complete valid backup structure containing all 11 IndexedDB stores', async () => {
+  it('exports a complete valid backup structure containing all 13 IndexedDB stores', async () => {
     await seedCompleteDatabase();
 
     const backup = await backupEngine.exportBackup();
@@ -83,7 +92,7 @@ describe('BackupEngine (Export, Import, Validation, Reset)', () => {
     expect(backup.app).toBe('Mandir 11');
     expect(backup.exported_at).toBeDefined();
 
-    // Verify all 11 stores exist in backup.data
+    // Verify all 13 stores exist in backup.data
     expect(backup.data.players.length).toBe(4);
     expect(backup.data.matches.length).toBe(1);
     expect(backup.data.teams.length).toBe(2);
@@ -94,11 +103,14 @@ describe('BackupEngine (Export, Import, Validation, Reset)', () => {
     expect(backup.data.ledger_entries.length).toBe(1);
     expect(backup.data.tournaments.length).toBe(1);
     expect(backup.data.fixtures.length).toBe(1);
+    expect(backup.data.ledger_payments.length).toBe(1);
+    expect(backup.data.debt_adjustments.length).toBe(0);
 
     // Metadata
     expect(backup.metadata.players_count).toBe(4);
     expect(backup.metadata.matches_count).toBe(1);
     expect(backup.metadata.tournaments_count).toBe(1);
+    expect(backup.metadata.ledger_payments_count).toBe(1);
   });
 
   // ── 2. Backup Validation ───────────────────────────────────────
@@ -161,6 +173,10 @@ describe('BackupEngine (Export, Import, Validation, Reset)', () => {
     const restoredTournaments = await db.tournaments.toArray();
     expect(restoredTournaments.length).toBe(1);
     expect(restoredTournaments[0].name).toBe('Colony Cup 2026');
+
+    const restoredPayments = await db.ledger_payments.toArray();
+    expect(restoredPayments.length).toBe(1);
+    expect(restoredPayments[0].amount).toBe(50);
   });
 
   // ── 4. Overwrite Restore (Atomicity) ───────────────────────────
@@ -211,7 +227,7 @@ describe('BackupEngine (Export, Import, Validation, Reset)', () => {
 
   // ── 6. Reset Database ──────────────────────────────────────────
 
-  it('permanently clears all 11 database stores on resetDatabase', async () => {
+  it('permanently clears all 13 database stores on resetDatabase', async () => {
     await seedCompleteDatabase();
 
     const res = await backupEngine.resetDatabase();
@@ -228,5 +244,24 @@ describe('BackupEngine (Export, Import, Validation, Reset)', () => {
     expect(await db.ledger_entries.count()).toBe(0);
     expect(await db.tournaments.count()).toBe(0);
     expect(await db.fixtures.count()).toBe(0);
+    expect(await db.ledger_payments.count()).toBe(0);
+    expect(await db.debt_adjustments.count()).toBe(0);
+  });
+
+  // ── 7. Backward-Compatible Restore for Earlier Backups ────────
+
+  it('gracefully restores older backups that lack ledger_payments and debt_adjustments', async () => {
+    await seedCompleteDatabase();
+    const backup = await backupEngine.exportBackup();
+
+    // Simulate an older v1 backup without ledger_payments and debt_adjustments
+    delete backup.data.ledger_payments;
+    delete backup.data.debt_adjustments;
+
+    await backupEngine.resetDatabase();
+    const res = await backupEngine.importBackup(backup);
+    expect(res.success).toBe(true);
+    expect(await db.players.count()).toBe(4);
+    expect(await db.ledger_payments.count()).toBe(0);
   });
 });

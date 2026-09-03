@@ -16,6 +16,9 @@ export class Mandir11Database extends Dexie {
       ledger_entries: 'id, match_id, player_a_id, player_b_id, created_at',
       tournaments: 'id, name, sport, format, status, created_at',
       fixtures: 'id, tournament_id, match_id, round_number, round_label, status, created_at',
+    });
+
+    this.version(2).stores({
       ledger_payments: 'id, match_id, debt_id, from_player_id, to_player_id, created_at',
       debt_adjustments: 'id, match_id, from_player_id, to_player_id, updated_at',
     });

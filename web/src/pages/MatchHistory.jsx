@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { matchesApi } from '../services/api';
 import MatchCard from '../components/MatchCard';
 import { LoadingSpinner, EmptyState, ErrorState } from '../components/ui';
@@ -8,14 +8,34 @@ const SPORTS = ['cricket', 'volleyball', 'badminton'];
 const STATUSES = ['upcoming', 'live', 'completed', 'abandoned'];
 
 export default function MatchHistory() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [sportFilter, setSportFilter] = useState(searchParams.get('sport') || '');
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || '');
   const [matches, setMatches] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [sportFilter, setSportFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(0);
   const LIMIT = 20;
+
+  // Keep filters in sync if URL query params change (e.g. back/forward or navigation from dashboard)
+  useEffect(() => {
+    const urlSport = searchParams.get('sport') || '';
+    const urlStatus = searchParams.get('status') || '';
+    setSportFilter(urlSport);
+    setStatusFilter(urlStatus);
+    setPage(0);
+  }, [searchParams]);
+
+  const updateFilters = (newSport, newStatus) => {
+    setSportFilter(newSport);
+    setStatusFilter(newStatus);
+    setPage(0);
+    const nextParams = {};
+    if (newSport) nextParams.sport = newSport;
+    if (newStatus) nextParams.status = newStatus;
+    setSearchParams(nextParams, { replace: true });
+  };
 
   const load = async () => {
     setLoading(true);
@@ -36,8 +56,6 @@ export default function MatchHistory() {
 
   useEffect(() => { load(); }, [sportFilter, statusFilter, page]);
 
-  const handleFilterChange = () => { setPage(0); };
-
   return (
     <div className="page">
       <div className="container-app">
@@ -56,7 +74,7 @@ export default function MatchHistory() {
             id="filter-sport"
             className="input max-w-[160px]"
             value={sportFilter}
-            onChange={(e) => { setSportFilter(e.target.value); handleFilterChange(); }}
+            onChange={(e) => updateFilters(e.target.value, statusFilter)}
           >
             <option value="">All sports</option>
             {SPORTS.map((s) => (
@@ -68,7 +86,7 @@ export default function MatchHistory() {
             id="filter-status"
             className="input max-w-[160px]"
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); handleFilterChange(); }}
+            onChange={(e) => updateFilters(sportFilter, e.target.value)}
           >
             <option value="">All statuses</option>
             {STATUSES.map((s) => (
@@ -79,7 +97,7 @@ export default function MatchHistory() {
           {(sportFilter || statusFilter) && (
             <button
               id="btn-clear-filters"
-              onClick={() => { setSportFilter(''); setStatusFilter(''); setPage(0); }}
+              onClick={() => updateFilters('', '')}
               className="btn-ghost btn btn-sm"
             >
               Clear filters
