@@ -2,6 +2,7 @@
  * Mandir 11 — Client-Side Canvas Scoreboard Generator
  * Generates shareable, high-resolution PNG scorecards for mobile & WhatsApp sharing.
  */
+import { exportImageFile } from './fileExportService';
 
 // Helper to draw rounded rectangle
 function drawRoundedRect(ctx, x, y, width, height, radius, fill = true, stroke = false) {
@@ -38,6 +39,7 @@ export function generateScoreboardCanvas({ match, scorecard, settlement, allPlay
 
   if (!ctx) return canvas;
 
+  const isPosition = match.sport === 'position';
   const isCricket = match.sport === 'cricket';
   const isTest = isCricket && (match.cricket_format === 'test' || match.format === 'test');
 
@@ -88,7 +90,9 @@ export function generateScoreboardCanvas({ match, scorecard, settlement, allPlay
   ctx.fillText('🏆 MANDIR 11', 170, 92);
 
   // Sport & Format Tag
-  const sportLabel = isTest
+  const sportLabel = isPosition
+    ? '🏅 POSITION MATCH'
+    : isTest
     ? '🛡️ TEST CRICKET'
     : isCricket
     ? '🏏 CRICKET'
@@ -128,6 +132,109 @@ export function generateScoreboardCanvas({ match, scorecard, settlement, allPlay
   ctx.moveTo(60, 165);
   ctx.lineTo(width - 60, 165);
   ctx.stroke();
+
+  // ─── Special Layout for Position Match ────────────────────────────
+  if (isPosition) {
+    const rankings = match.result?.hydratedRankings || match.result?.rankings || [];
+    const sortedRankings = [...rankings].sort((a, b) => (a.position || 0) - (b.position || 0));
+
+    const firstPlace = sortedRankings.find((r) => r.position === 1);
+    const winnerPlayer = firstPlace?.player || allPlayers.find((p) => p.id === (firstPlace?.player_id || match.result?.winner_player_id));
+    const winnerName = winnerPlayer?.name || 'Winner';
+
+    let currentY = 195;
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.15)';
+    drawRoundedRect(ctx, 60, currentY, width - 120, 80, 20, true, false);
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
+    ctx.lineWidth = 1.5;
+    drawRoundedRect(ctx, 60, currentY, width - 120, 80, 20, false, true);
+
+    ctx.fillStyle = '#34D399';
+    ctx.font = 'bold 30px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`👑  1ST PLACE WINNER: ${winnerName.toUpperCase()} (+3 PTS)`, width / 2, currentY + 50);
+
+    currentY += 105;
+
+    const cardHeight = Math.max(380, sortedRankings.length * 72 + 100);
+    ctx.fillStyle = 'rgba(30, 41, 59, 0.7)';
+    drawRoundedRect(ctx, 60, currentY, width - 120, cardHeight, 24, true, false);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 2;
+    drawRoundedRect(ctx, 60, currentY, width - 120, cardHeight, 24, false, true);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#60A5FA';
+    ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+    ctx.fillText('🏅 OFFICIAL FINAL PLACEMENTS & POINTS', 95, currentY + 45);
+
+    let rowY = currentY + 70;
+    sortedRankings.forEach((r) => {
+      const pObj = r.player || allPlayers.find((p) => p.id === r.player_id);
+      const pName = pObj?.name || 'Player';
+      const pos = r.position;
+      const pts = r.points ?? (pos === 1 ? 3 : pos === 2 ? 2 : pos === 3 ? 1 : 0);
+
+      const rowBg = pos === 1
+        ? 'rgba(245, 158, 11, 0.15)'
+        : pos === 2
+        ? 'rgba(148, 163, 184, 0.12)'
+        : pos === 3
+        ? 'rgba(217, 119, 6, 0.12)'
+        : 'rgba(51, 65, 85, 0.3)';
+
+      const medal = pos === 1 ? '🥇 1st' : pos === 2 ? '🥈 2nd' : pos === 3 ? '🥉 3rd' : `${pos}th`;
+      const posColor = pos === 1 ? '#FBBF24' : pos === 2 ? '#E2E8F0' : pos === 3 ? '#F59E0B' : '#94A3B8';
+
+      ctx.fillStyle = rowBg;
+      drawRoundedRect(ctx, 95, rowY, width - 190, 56, 14, true, false);
+
+      ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = posColor;
+      ctx.textAlign = 'left';
+      ctx.fillText(medal, 115, rowY + 36);
+
+      ctx.font = 'bold 22px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(pName, 240, rowY + 36);
+
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+      ctx.fillStyle = pts > 0 ? '#34D399' : '#64748B';
+      ctx.fillText(`+${pts} pts`, width - 120, rowY + 36);
+
+      rowY += 66;
+    });
+
+    const ruleY = currentY + cardHeight + 25;
+    ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
+    drawRoundedRect(ctx, 60, ruleY, width - 120, 56, 14, true, false);
+    ctx.strokeStyle = 'rgba(59, 130, 246, 0.2)';
+    ctx.lineWidth = 1;
+    drawRoundedRect(ctx, 60, ruleY, width - 120, 56, 14, false, true);
+
+    ctx.fillStyle = '#93C5FD';
+    ctx.font = 'bold 15px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('⭐ Ranking Points System: 1st: 3 pts · 2nd: 2 pts · 3rd: 1 pt · 4th and below: 0 pts', width / 2, ruleY + 34);
+
+    const footerY = height - 55;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.beginPath();
+    ctx.moveTo(60, footerY - 25);
+    ctx.lineTo(width - 60, footerY - 25);
+    ctx.stroke();
+
+    ctx.fillStyle = '#64748B';
+    ctx.font = '14px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('Mandir 11 · Local-First Colony Sports Platform', 60, footerY);
+
+    ctx.textAlign = 'right';
+    ctx.fillText(`Match ID: ${match.id?.slice(0, 8)}`, width - 60, footerY);
+
+    return canvas;
+  }
 
   // ─── 3. Main Teams & Scores Card ─────────────────────────────────
   let currentY = 195;
@@ -424,23 +531,25 @@ export function generateScoreboardCanvas({ match, scorecard, settlement, allPlay
 }
 
 /**
- * Triggers a client-side download of the scoreboard PNG image
+ * Triggers download or export of the scoreboard PNG image across web and Android
  */
-export function downloadScoreboardImage({ match, scorecard, settlement, allPlayers = [] }) {
-  const canvas = generateScoreboardCanvas({ match, scorecard, settlement, allPlayers });
-  const filename = `mandir11_${match.sport}_${match.id?.slice(0, 8) || 'match'}.png`;
+export async function downloadScoreboardImage({ match, scorecard, settlement, allPlayers = [] }) {
+  if (!match) {
+    throw new Error('Match data is required to generate a scorecard.');
+  }
 
-  canvas.toBlob((blob) => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }, 'image/png');
+  const canvas = generateScoreboardCanvas({ match, scorecard, settlement, allPlayers });
+  const filename = `mandir11_${match.sport || 'match'}_${match.id?.slice(0, 8) || 'match'}.png`;
+
+  if (!canvas || typeof canvas.toBlob !== 'function') {
+    return { success: true, filename, method: 'mock' };
+  }
+
+  return exportImageFile({
+    filename,
+    canvas,
+    mimeType: 'image/png',
+  });
 }
 
 /**

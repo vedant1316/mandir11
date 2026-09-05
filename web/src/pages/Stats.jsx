@@ -120,11 +120,14 @@ export default function Stats() {
             <div className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs font-semibold text-emerald-300">
               🏸 <span className="font-bold">{summary?.sportBreakdown?.badminton ?? 0}</span> Badminton
             </div>
+            <div className="px-3 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/30 text-xs font-semibold text-purple-300">
+              🏅 <span className="font-bold">{summary?.sportBreakdown?.position ?? 0}</span> Position
+            </div>
           </div>
         </div>
 
         {/* Dynamic Highlight Banners */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {bestPlayerPair.leader && (
             <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-surface-800 to-surface-800 border border-amber-500/30 flex items-center gap-3">
               <span className="text-2xl flex-shrink-0">🔥</span>
@@ -144,6 +147,18 @@ export default function Stats() {
                 <span className="text-xs font-bold text-brand-400 uppercase tracking-wider block">Synergy Record</span>
                 <p className="text-sm font-semibold text-white truncate">
                   {bestTeamCombination.insight}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {stats.positionStats?.leader && stats.positionStats.leader.points > 0 && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-500/15 via-surface-800 to-surface-800 border border-purple-500/30 flex items-center gap-3">
+              <span className="text-2xl flex-shrink-0">🏅</span>
+              <div className="min-w-0">
+                <span className="text-xs font-bold text-purple-400 uppercase tracking-wider block">Position Points King</span>
+                <p className="text-sm font-semibold text-white truncate">
+                  {stats.positionStats.insight}
                 </p>
               </div>
             </div>
@@ -584,6 +599,7 @@ export default function Stats() {
                 { id: 'cricket', label: '🏏 Cricket' },
                 { id: 'volleyball', label: '🏐 Volleyball' },
                 { id: 'badminton', label: '🏸 Badminton' },
+                { id: 'position', label: '🏅 Position' },
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -601,7 +617,7 @@ export default function Stats() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* 🏏 Cricket Card */}
             {(activeSportTab === 'all' || activeSportTab === 'cricket') && (
               <div className="card p-5 border-surface-600 bg-surface-800/90 space-y-3">
@@ -745,6 +761,54 @@ export default function Stats() {
                   </div>
                 ) : (
                   <p className="text-xs text-gray-500 py-4 text-center">No badminton matches completed yet.</p>
+                )}
+              </div>
+            )}
+
+            {/* 🏅 Position Card */}
+            {(activeSportTab === 'all' || activeSportTab === 'position') && (
+              <div id="stat-card-position" className="card p-5 border-surface-600 bg-surface-800/90 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-surface-700">
+                  <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                    <span>🏅</span> Position Highlights
+                  </span>
+                  <span className="text-xs text-purple-300 font-semibold">
+                    {sports.position?.matches || 0} Matches
+                  </span>
+                </div>
+
+                {(sports.position?.matches || 0) > 0 ? (
+                  <div className="space-y-2.5 text-xs">
+                    {sports.position.mostPoints && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-400">Points Leader:</span>
+                        <span className="font-semibold text-purple-300">
+                          {sports.position.mostPoints.player.name} ({sports.position.mostPoints.points} pts)
+                        </span>
+                      </div>
+                    )}
+                    {sports.position.topWinner && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-400">Most 1st Places:</span>
+                        <span className="font-semibold text-amber-300">
+                          {sports.position.topWinner.player.name} ({sports.position.topWinner.wins} wins)
+                        </span>
+                      </div>
+                    )}
+                    {sports.position.mostPodiums && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-400">Most Podiums:</span>
+                        <span className="font-semibold text-emerald-300">
+                          {sports.position.mostPodiums.player.name} ({sports.position.mostPodiums.podiums} podiums)
+                        </span>
+                      </div>
+                    )}
+                    <div className="pt-2 border-t border-surface-700/60 flex justify-between text-[11px] text-gray-500">
+                      <span>Points: 1st=3, 2nd=2, 3rd=1</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 py-4 text-center">No position matches completed yet.</p>
                 )}
               </div>
             )}

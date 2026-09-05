@@ -16,6 +16,7 @@ const SPORTS = [
   { id: 'cricket',    label: 'Cricket',    emoji: '🏏', desc: 'Ball-by-ball scoring' },
   { id: 'volleyball', label: 'Volleyball', emoji: '🏐', desc: 'Final score entry' },
   { id: 'badminton',  label: 'Badminton',  emoji: '🏸', desc: 'Singles & Doubles, final score entry' },
+  { id: 'position',   label: 'Position Match', emoji: '🏅', desc: 'Ranking match, placement & points' },
 ];
 
 export default function QuickMatch() {
@@ -49,10 +50,36 @@ export default function QuickMatch() {
   const [openingBatterId, setOpeningBatterId] = useState('');
   const [openingBowlerId, setOpeningBowlerId] = useState('');
 
+  // Position Match specific state
+  const [positionAssignments, setPositionAssignments] = useState({}); // { 1: pid, 2: pid, ... }
+  const [playerSearchQuery, setPlayerSearchQuery] = useState('');
+  const [showAddPlayerModal, setShowAddPlayerModal] = useState(false);
+  const [newPlayerName, setNewPlayerName] = useState('');
+  const [addPlayerError, setAddPlayerError] = useState(null);
+
   // Handle Play Again navigation prefill
   useEffect(() => {
     const playState = location.state;
-    if (playState?.playAgain) {
+    if (playState) {
+      if (playState.sport === 'position') {
+        setSport('position');
+        if (playState.participants && Array.isArray(playState.participants)) {
+          setSelectedPlayerIds(new Set(playState.participants));
+        }
+        // Load active players
+        (async () => {
+          try {
+            const res = await playersApi.list(true);
+            setAllPlayers(res.data.players);
+          } catch {
+            // ignore
+          }
+        })();
+        setStep(2);
+        setNotice('🔄 Prefilled participants from previous Position Match.');
+        return;
+      }
+
       if (playState.sport) setSport(playState.sport);
       if (playState.cricketFormat) setCricketFormat(playState.cricketFormat);
       if (playState.oversLimit) setOversLimit(playState.oversLimit);
@@ -230,7 +257,103 @@ export default function QuickMatch() {
       return;
     }
     setError(null);
+    if (sport === 'position') {
+      // Pre-fill default positions if unassigned
+      const pids = Array.from(selectedPlayerIds);
+      const initial = {};
+      pids.forEach((pid, idx) => {
+        initial[idx + 1] = pid;
+      });
+      setPositionAssignments((prev) => {
+        const next = { ...prev };
+        pids.forEach((pid, idx) => {
+          if (!next[idx + 1]) next[idx + 1] = pid;
+        });
+        return next;
+      });
+    }
     setStep(3);
+  };
+
+  const handleAssignPosition = (pos, pid) => {
+    setPositionAssignments((prev) => ({
+      ...prev,
+      [pos]: pid,
+    }));
+  };
+
+  const handleAddNewPlayer = async () => {
+    const trimmed = newPlayerName.trim();
+    if (!trimmed) {
+      setAddPlayerError('Player name cannot be empty.');
+      return;
+    }
+
+    // Check case-insensitive duplicate in all existing players
+    const existing = allPlayers.find(
+      (p) => p.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (existing) {
+      // Select existing player without creating duplicate
+      setSelectedPlayerIds((prev) => new Set([...prev, existing.id]));
+      setNewPlayerName('');
+      setShowAddPlayerModal(false);
+      setAddPlayerError(null);
+      setNotice(`Selected existing player '${existing.name}'.`);
+      return;
+    }
+
+    try {
+      const res = await playersApi.create(trimmed);
+      const newP = res.data;
+      setAllPlayers((prev) => [...prev, newP]);
+      setSelectedPlayerIds((prev) => new Set([...prev, newP.id]));
+      setNewPlayerName('');
+      setShowAddPlayerModal(false);
+      setAddPlayerError(null);
+      setNotice(`Added and selected new player '${newP.name}'.`);
+    } catch (err) {
+      setAddPlayerError(err?.message || 'Failed to add player.');
+    }
+  };
+
+  const handleSavePositionMatch = async () => {
+    setError(null);
+    const participantIds = Array.from(selectedPlayerIds);
+    const n = participantIds.length;
+
+    const rankings = [];
+    const assignedPids = new Set();
+
+    for (let pos = 1; pos <= n; pos++) {
+      const pid = positionAssignments[pos];
+      if (!pid) {
+        setError(`Please assign a player for position ${pos}.`);
+        return;
+      }
+      if (assignedPids.has(pid)) {
+        setError('Cannot assign the same player to multiple positions.');
+        return;
+      }
+      assignedPids.add(pid);
+      rankings.push({ position: pos, player_id: pid });
+    }
+
+    if (assignedPids.size !== n) {
+      setError('Every participant must be assigned to exactly one position.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await matchesApi.createPositionMatch({
+        rankings,
+      });
+      navigate(`/matches/${res.data.id}`);
+    } catch (err) {
+      setError(err?.message || 'Failed to save position match.');
+      setLoading(false);
+    }
   };
 
   const handleTeamsNext = () => {
@@ -368,7 +491,14 @@ export default function QuickMatch() {
 
         {/* Step indicator */}
         <div className="flex items-center gap-1 mb-10 overflow-x-auto pb-1">
-          {STEPS.map((s, i) => (
+          {(sport === 'position'
+            ? [
+                { id: 1, label: 'Sport' },
+                { id: 2, label: 'Participants' },
+                { id: 3, label: 'Positions' },
+              ]
+            : STEPS
+          ).map((s, i, arr) => (
             <div key={s.id} className="flex items-center gap-1 flex-shrink-0">
               <div className="flex flex-col items-center gap-1">
                 <div
@@ -386,7 +516,7 @@ export default function QuickMatch() {
                   {s.label}
                 </span>
               </div>
-              {i < STEPS.length - 1 && (
+              {i < arr.length - 1 && (
                 <div
                   className={`h-0.5 w-6 sm:w-10 mt-[-1rem] ${
                     step > s.id ? 'bg-brand-500' : 'bg-surface-600'
@@ -459,34 +589,70 @@ export default function QuickMatch() {
 
         {/* ─── Step 2: Select players ───────────────────────────── */}
         {step === 2 && (
-          <div id="step-players" className="animate-slide-up">
-            <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
-              <h2 className="section-title">Select players</h2>
+          <div id="step-players" className="animate-slide-up space-y-4">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <div>
+                <h2 className="section-title">
+                  {sport === 'position' ? 'Select Participants' : 'Select players'}
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {sport === 'position'
+                    ? 'Pick all participants competing in this ranking match'
+                    : 'Choose players for Team A and Team B'}
+                </p>
+              </div>
               <div className="flex items-center gap-2">
                 <button
-                  id="btn-reuse-teams-step2"
+                  id="btn-quick-add-player"
                   type="button"
-                  onClick={handleReuseLastTeams}
-                  className="btn-secondary btn btn-sm text-xs flex items-center gap-1.5"
+                  onClick={() => setShowAddPlayerModal(true)}
+                  className="btn-primary btn btn-sm text-xs flex items-center gap-1"
                 >
-                  <span>⚡</span> Use Teams from Last Match
+                  <span>➕</span> Add Player
                 </button>
+                {sport !== 'position' && (
+                  <button
+                    id="btn-reuse-teams-step2"
+                    type="button"
+                    onClick={handleReuseLastTeams}
+                    className="btn-secondary btn btn-sm text-xs flex items-center gap-1.5"
+                  >
+                    <span>⚡</span> Use Teams from Last Match
+                  </button>
+                )}
                 <span className="badge-blue">{selectedPlayerIds.size} selected</span>
               </div>
+            </div>
+
+            {/* Search filter for players */}
+            <div className="mb-3">
+              <input
+                id="input-search-players"
+                type="text"
+                placeholder="🔍 Filter players by name…"
+                value={playerSearchQuery}
+                onChange={(e) => setPlayerSearchQuery(e.target.value)}
+                className="input text-xs w-full"
+              />
             </div>
 
             {allPlayers.length === 0 ? (
               <p className="text-gray-500 text-sm">No active players found. Add players first.</p>
             ) : (
-              <div className="grid grid-cols-2 gap-2 mb-6">
-                {allPlayers.map((p) => (
-                  <PlayerBadge
-                    key={p.id}
-                    player={p}
-                    selected={selectedPlayerIds.has(p.id)}
-                    onClick={() => togglePlayerSelect(p.id)}
-                  />
-                ))}
+              <div className="grid grid-cols-2 gap-2 mb-6 max-h-[380px] overflow-y-auto pr-1">
+                {allPlayers
+                  .filter((p) =>
+                    !playerSearchQuery ||
+                    p.name.toLowerCase().includes(playerSearchQuery.toLowerCase())
+                  )
+                  .map((p) => (
+                    <PlayerBadge
+                      key={p.id}
+                      player={p}
+                      selected={selectedPlayerIds.has(p.id)}
+                      onClick={() => togglePlayerSelect(p.id)}
+                    />
+                  ))}
               </div>
             )}
 
@@ -498,14 +664,176 @@ export default function QuickMatch() {
                 disabled={selectedPlayerIds.size < 2}
                 className="btn-primary btn"
               >
-                Assign Teams →
+                {sport === 'position' ? 'Next: Assign Positions →' : 'Assign Teams →'}
               </button>
             </div>
           </div>
         )}
 
+        {/* ─── Position Match: Step 3 Assign Positions ───────────── */}
+        {step === 3 && sport === 'position' && (
+          <div id="step-positions" className="animate-slide-up space-y-6">
+            <div className="card p-6 space-y-6 border-brand-500/30">
+              <div className="flex items-center justify-between pb-3 border-b border-surface-600/60">
+                <div>
+                  <h2 className="section-title text-base flex items-center gap-2">
+                    <span>🏅</span> POSITION MATCH RESULT
+                  </h2>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Assign the final rank for all {selectedPlayerIds.size} participants. Points are automatically recorded.
+                  </p>
+                </div>
+                <span className="badge-green text-xs font-bold">
+                  {selectedPlayerIds.size} Participants
+                </span>
+              </div>
+
+              {/* Dynamic Position Inputs */}
+              <div className="space-y-4">
+                {Array.from({ length: selectedPlayerIds.size }, (_, idx) => {
+                  const pos = idx + 1;
+                  const pts = pos === 1 ? 3 : pos === 2 ? 2 : pos === 3 ? 1 : 0;
+                  const medal = pos === 1 ? '🥇 1st' : pos === 2 ? '🥈 2nd' : pos === 3 ? '🥉 3rd' : `${pos}th`;
+                  const assignedPid = positionAssignments[pos] || '';
+
+                  return (
+                    <div
+                      key={pos}
+                      className={`p-4 rounded-xl border transition-all ${
+                        pos === 1
+                          ? 'bg-amber-500/10 border-amber-500/30'
+                          : pos === 2
+                          ? 'bg-surface-700/60 border-surface-600'
+                          : pos === 3
+                          ? 'bg-orange-500/10 border-orange-500/30'
+                          : 'bg-surface-800 border-surface-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-bold text-white flex items-center gap-2">
+                          <span className="text-base">{medal}</span>
+                          <span className="text-xs text-gray-400 font-normal">Place</span>
+                        </label>
+                        <span className={`text-xs font-black px-2 py-0.5 rounded-full ${
+                          pts > 0 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-surface-700 text-gray-400'
+                        }`}>
+                          {pts} pts
+                        </span>
+                      </div>
+
+                      <select
+                        id={`select-position-${pos}`}
+                        className="input w-full"
+                        value={assignedPid}
+                        onChange={(e) => handleAssignPosition(pos, e.target.value)}
+                      >
+                        <option value="">— Select Player —</option>
+                        {selectedPlayers.map((p) => {
+                          const alreadyAssignedToOther = Object.entries(positionAssignments).some(
+                            ([otherPos, otherPid]) => Number(otherPos) !== pos && otherPid === p.id
+                          );
+                          return (
+                            <option
+                              key={p.id}
+                              value={p.id}
+                              disabled={alreadyAssignedToOther}
+                            >
+                              {p.name} {alreadyAssignedToOther ? '(Assigned to another position)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 justify-between pt-4 border-t border-surface-600/60">
+                <button
+                  id="step-positions-back"
+                  type="button"
+                  onClick={() => setStep(2)}
+                  className="btn-secondary btn"
+                >
+                  ← Back
+                </button>
+                <button
+                  id="btn-confirm-position-match"
+                  type="button"
+                  disabled={loading}
+                  onClick={handleSavePositionMatch}
+                  className="btn-primary btn btn-lg"
+                >
+                  {loading ? 'Saving Match…' : '🏁 Confirm Result & Save Match'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal for adding a new player inline */}
+        {showAddPlayerModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+            <div className="card p-6 max-w-sm w-full space-y-4 border-surface-600 bg-surface-800 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <span>➕</span> Add New Player
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => { setShowAddPlayerModal(false); setAddPlayerError(null); }}
+                  className="text-gray-400 hover:text-white"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {addPlayerError && (
+                <div className="p-3 rounded-xl bg-red-500/20 border border-red-500/30 text-xs text-red-300">
+                  {addPlayerError}
+                </div>
+              )}
+
+              <div>
+                <label className="label text-xs">Player Full Name</label>
+                <input
+                  id="input-new-player-name"
+                  type="text"
+                  autoFocus
+                  placeholder="e.g. Vedant"
+                  value={newPlayerName}
+                  onChange={(e) => setNewPlayerName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddNewPlayer();
+                  }}
+                  className="input w-full text-sm"
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowAddPlayerModal(false); setAddPlayerError(null); }}
+                  className="btn-ghost btn btn-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  id="btn-confirm-add-player"
+                  type="button"
+                  onClick={handleAddNewPlayer}
+                  className="btn-primary btn btn-sm"
+                >
+                  Add Player
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ─── Step 3: Build teams ──────────────────────────────── */}
-        {step === 3 && (
+        {step === 3 && sport !== 'position' && (
           <div id="step-teams" className="animate-slide-up">
             <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <h2 className="section-title">Build teams</h2>

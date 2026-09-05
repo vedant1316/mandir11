@@ -1,6 +1,17 @@
 import { db as defaultDb } from '../db/db';
 import defaultRules from '../config/rankingRules.json';
 import { PlayerNotFoundError } from './errors';
+import {
+  getPositionPoints,
+  calculatePlayerPositionStats,
+  calculateAllPlayersPositionLeaderboard,
+} from './rankingPointEngine';
+
+export {
+  getPositionPoints,
+  calculatePlayerPositionStats,
+  calculateAllPlayersPositionLeaderboard,
+};
 
 /**
  * Calculates a player's cricket batting and bowling statistics across completed matches
@@ -273,7 +284,26 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
   // Filter completed matches where player participated
   const playerMatches = [];
   for (const m of completedMatches) {
-    if (teamMatchMap.has(m.id)) {
+    if (m.sport === 'position') {
+      const res = resultMap.get(m.id);
+      if (res?.rankings && Array.isArray(res.rankings)) {
+        const ranking = res.rankings.find((r) => r.player_id === playerId);
+        if (ranking) {
+          const pos = Number(ranking.position);
+          const outcome = pos === 1 ? 'won' : 'lost';
+          const posSuffix = pos === 1 ? 'st' : pos === 2 ? 'nd' : pos === 3 ? 'rd' : 'th';
+          playerMatches.push({
+            match: m,
+            team: { id: `pos_${pos}`, label: `${pos}${posSuffix} Place` },
+            result: res,
+            outcome,
+            isPom: false,
+            date: m.date || m.created_at,
+            sport: m.sport,
+          });
+        }
+      }
+    } else if (teamMatchMap.has(m.id)) {
       const team = teamMatchMap.get(m.id);
       const res = resultMap.get(m.id);
       const isPom = m.player_of_match_id === playerId;
@@ -299,10 +329,28 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
   playerMatches.sort((a, b) => new Date(a.date) - new Date(b.date));
 
   // Aggregate sport-wise records
+  const completedPositionMatches = completedMatches.filter((m) => m.sport === 'position');
+  const positionStats = calculatePlayerPositionStats(playerId, completedPositionMatches, resultMap);
+
   const sportStats = {
     cricket: { matches: 0, wins: 0, losses: 0, ties: 0, winPercentage: 0 },
     volleyball: { matches: 0, wins: 0, losses: 0, ties: 0, winPercentage: 0 },
     badminton: { matches: 0, wins: 0, losses: 0, ties: 0, winPercentage: 0 },
+    position: {
+      matches: positionStats.matches,
+      wins: positionStats.firstPlaceCount,
+      losses: positionStats.matches - positionStats.firstPlaceCount,
+      ties: 0,
+      winPercentage: positionStats.matches > 0 ? Math.round((positionStats.firstPlaceCount / positionStats.matches) * 1000) / 10 : 0,
+      rankingPoints: positionStats.totalPoints,
+      firstPlaceCount: positionStats.firstPlaceCount,
+      secondPlaceCount: positionStats.secondPlaceCount,
+      thirdPlaceCount: positionStats.thirdPlaceCount,
+      podiumCount: positionStats.podiumCount,
+      averagePosition: positionStats.averagePosition,
+      bestPosition: positionStats.bestPosition,
+      positions: positionStats.positions,
+    },
   };
 
   let totalMatches = 0;
@@ -323,7 +371,7 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
     else if (pm.outcome === 'lost') totalLosses++;
     else totalTies++;
 
-    if (sportStats[pm.sport]) {
+    if (pm.sport !== 'position' && sportStats[pm.sport]) {
       sportStats[pm.sport].matches++;
       if (pm.outcome === 'won') sportStats[pm.sport].wins++;
       else if (pm.outcome === 'lost') sportStats[pm.sport].losses++;
@@ -331,8 +379,8 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
     }
   }
 
-  // Compute win percentages
-  Object.keys(sportStats).forEach((sp) => {
+  // Compute win percentages for team sports
+  ['cricket', 'volleyball', 'badminton'].forEach((sp) => {
     const st = sportStats[sp];
     st.winPercentage = st.matches > 0 ? Math.round((st.wins / st.matches) * 1000) / 10 : 0;
   });
@@ -346,7 +394,7 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
   // Cricket detailed stats
   const cricketDetails = await calculatePlayerCricketStats(
     playerId,
-    playerMatches.map((pm) => pm.match),
+    playerMatches.filter((pm) => pm.sport === 'cricket').map((pm) => pm.match),
     db
   );
   sportStats.cricket = {
@@ -365,12 +413,24 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
   const totalRuns = cricketDetails.batting.runs || 0;
   const totalWickets = cricketDetails.bowling.wickets || 0;
 
+  let teamWins = 0;
+  let teamLosses = 0;
+  let teamTies = 0;
+  for (const pm of playerMatches) {
+    if (pm.sport !== 'position') {
+      if (pm.outcome === 'won') teamWins++;
+      else if (pm.outcome === 'lost') teamLosses++;
+      else teamTies++;
+    }
+  }
+
   const overallRankingPoints =
-    totalWins * winWeight +
-    totalLosses * lossWeight +
-    totalTies * tieWeight +
+    teamWins * winWeight +
+    teamLosses * lossWeight +
+    teamTies * tieWeight +
     totalRuns * runWeight +
-    totalWickets * wicketWeight;
+    totalWickets * wicketWeight +
+    positionStats.totalPoints;
 
   // Sport-specific ranking points
   sportStats.cricket.rankingPoints =
@@ -404,6 +464,7 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
     rankingPoints: overallRankingPoints,
     streaks,
     sports: sportStats,
+    positionStats,
     recentMatches: playerMatches
       .slice(-10)
       .reverse()
@@ -413,7 +474,7 @@ export async function getPlayerStats(playerId, sport = null, db = defaultDb, rul
         date: pm.date,
         outcome: pm.outcome,
         isPom: pm.isPom,
-        teamLabel: pm.team.label,
+        teamLabel: pm.team?.label || '',
       })),
   };
 
@@ -478,6 +539,26 @@ export async function getRankings(sport = 'overall', db = defaultDb, rules = def
         if (bb.wins !== ba.wins) return bb.wins - ba.wins;
         return bb.matches - ba.matches;
       });
+  } else if (sport === 'position') {
+    sorted = playerStatsList
+      .filter((s) => (s.sports.position?.matches || 0) > 0 || s.player.is_active)
+      .sort((a, b) => {
+        const pa = a.sports.position || {};
+        const pb = b.sports.position || {};
+        if ((pb.rankingPoints || 0) !== (pa.rankingPoints || 0)) {
+          return (pb.rankingPoints || 0) - (pa.rankingPoints || 0);
+        }
+        if ((pb.firstPlaceCount || 0) !== (pa.firstPlaceCount || 0)) {
+          return (pb.firstPlaceCount || 0) - (pa.firstPlaceCount || 0);
+        }
+        if ((pb.secondPlaceCount || 0) !== (pa.secondPlaceCount || 0)) {
+          return (pb.secondPlaceCount || 0) - (pa.secondPlaceCount || 0);
+        }
+        if ((pb.thirdPlaceCount || 0) !== (pa.thirdPlaceCount || 0)) {
+          return (pb.thirdPlaceCount || 0) - (pa.thirdPlaceCount || 0);
+        }
+        return (pb.matches || 0) - (pa.matches || 0);
+      });
   } else {
     // Overall
     sorted = playerStatsList
@@ -507,6 +588,12 @@ export async function getRankings(sport = 'overall', db = defaultDb, rules = def
       wickets: isOverall ? s.totalWickets : sStat?.bowling?.wickets || 0,
       winPercentage: isOverall ? s.winPercentage : sStat?.winPercentage || 0,
       rankingPoints: isOverall ? s.rankingPoints : sStat?.rankingPoints || 0,
+      firstPlaceCount: sStat?.firstPlaceCount || 0,
+      secondPlaceCount: sStat?.secondPlaceCount || 0,
+      thirdPlaceCount: sStat?.thirdPlaceCount || 0,
+      podiumCount: sStat?.podiumCount || 0,
+      averagePosition: sStat?.averagePosition || 0,
+      bestPosition: sStat?.bestPosition || null,
       streaks: s.streaks,
       sportStats: !isOverall ? sStat : s.sports,
     };
@@ -591,7 +678,7 @@ export async function getColonyInterestingStats(db = defaultDb) {
     return {
       summary: {
         totalCompletedMatches: 0,
-        sportBreakdown: { cricket: 0, volleyball: 0, badminton: 0 },
+        sportBreakdown: { cricket: 0, volleyball: 0, badminton: 0, position: 0 },
         totalPlayers: allPlayers.length,
       },
       mostWins: { leader: null, rankings: [], insight: 'No completed matches yet.' },
@@ -607,6 +694,14 @@ export async function getColonyInterestingStats(db = defaultDb) {
         cricket: { matches: 0, topWinner: null, topBatter: null, topBowler: null, highestIndividualScore: null, totalRuns: 0, totalWickets: 0 },
         volleyball: { matches: 0, topWinner: null, bestWinRate: null, mostMatches: null },
         badminton: { matches: 0, topWinner: null, bestWinRate: null, mostMatches: null },
+        position: { matches: 0, topWinner: null, mostPoints: null, mostPodiums: null },
+      },
+      positionStats: {
+        matches: 0,
+        leader: null,
+        topWinner: null,
+        mostPodiums: null,
+        insight: 'No position matches played yet.',
       },
     };
   }
@@ -640,7 +735,7 @@ export async function getColonyInterestingStats(db = defaultDb) {
   const completedMatchIds = new Set(completedMatches.map((m) => m.id));
 
   // Sport breakdown
-  const sportBreakdown = { cricket: 0, volleyball: 0, badminton: 0 };
+  const sportBreakdown = { cricket: 0, volleyball: 0, badminton: 0, position: 0 };
   for (const m of completedMatches) {
     if (sportBreakdown[m.sport] !== undefined) {
       sportBreakdown[m.sport]++;
@@ -661,6 +756,7 @@ export async function getColonyInterestingStats(db = defaultDb) {
         cricket: { matches: 0, wins: 0, losses: 0, ties: 0 },
         volleyball: { matches: 0, wins: 0, losses: 0, ties: 0 },
         badminton: { matches: 0, wins: 0, losses: 0, ties: 0 },
+        position: { matches: 0, wins: 0, losses: 0, ties: 0, points: 0, firstPlace: 0, secondPlace: 0, thirdPlace: 0, podiums: 0 },
       },
     });
   }
@@ -672,6 +768,66 @@ export async function getColonyInterestingStats(db = defaultDb) {
 
   for (const m of completedMatches) {
     const res = resultMap.get(m.id);
+
+    if (m.sport === 'position') {
+      if (res?.rankings && Array.isArray(res.rankings)) {
+        for (const r of res.rankings) {
+          const pId = r.player_id;
+          const pos = Number(r.position);
+          const isWinner = pos === 1;
+          const outcome = isWinner ? 'won' : 'lost';
+
+          let pEntry = playerStats.get(pId);
+          if (!pEntry) {
+            const pl = playerMap.get(pId) || { id: pId, name: 'Unknown' };
+            pEntry = {
+              player: pl,
+              matches: 0,
+              wins: 0,
+              losses: 0,
+              ties: 0,
+              matchOutcomes: [],
+              sports: {
+                cricket: { matches: 0, wins: 0, losses: 0, ties: 0 },
+                volleyball: { matches: 0, wins: 0, losses: 0, ties: 0 },
+                badminton: { matches: 0, wins: 0, losses: 0, ties: 0 },
+                position: { matches: 0, wins: 0, losses: 0, ties: 0, points: 0, firstPlace: 0, secondPlace: 0, thirdPlace: 0, podiums: 0 },
+              },
+            };
+            playerStats.set(pId, pEntry);
+          }
+
+          pEntry.matches++;
+          pEntry.matchOutcomes.push(outcome);
+          if (isWinner) pEntry.wins++;
+          else pEntry.losses++;
+
+          if (!pEntry.sports.position) {
+            pEntry.sports.position = { matches: 0, wins: 0, losses: 0, ties: 0, points: 0, firstPlace: 0, secondPlace: 0, thirdPlace: 0, podiums: 0 };
+          }
+          pEntry.sports.position.matches++;
+          const pts = r.points !== undefined ? Number(r.points) : getPositionPoints(pos);
+          pEntry.sports.position.points += pts;
+          if (pos === 1) {
+            pEntry.sports.position.wins++;
+            pEntry.sports.position.firstPlace++;
+            pEntry.sports.position.podiums++;
+          } else if (pos === 2) {
+            pEntry.sports.position.losses++;
+            pEntry.sports.position.secondPlace++;
+            pEntry.sports.position.podiums++;
+          } else if (pos === 3) {
+            pEntry.sports.position.losses++;
+            pEntry.sports.position.thirdPlace++;
+            pEntry.sports.position.podiums++;
+          } else {
+            pEntry.sports.position.losses++;
+          }
+        }
+      }
+      continue;
+    }
+
     const winningTeamId = res?.winning_team_id || null;
     const mTeams = matchTeamsMap.get(m.id) || [];
 
@@ -997,6 +1153,17 @@ export async function getColonyInterestingStats(db = defaultDb) {
       }
     : null;
 
+  // Position Match Highlights
+  const posPlayers = activePlayersStats.filter((p) => p.sports.position && p.sports.position.matches > 0);
+  const posPointsSorted = [...posPlayers].sort((a, b) => (b.sports.position.points || 0) - (a.sports.position.points || 0));
+  const posMostPoints = posPointsSorted[0] || null;
+
+  const posWinnersSorted = [...posPlayers].sort((a, b) => (b.sports.position.firstPlace || 0) - (a.sports.position.firstPlace || 0));
+  const posTopWinner = posWinnersSorted[0] && posWinnersSorted[0].sports.position.firstPlace > 0 ? posWinnersSorted[0] : null;
+
+  const posPodiumsSorted = [...posPlayers].sort((a, b) => (b.sports.position.podiums || 0) - (a.sports.position.podiums || 0));
+  const posMostPodiums = posPodiumsSorted[0] && posPodiumsSorted[0].sports.position.podiums > 0 ? posPodiumsSorted[0] : null;
+
   return {
     summary: {
       totalCompletedMatches: completedMatches.length,
@@ -1071,6 +1238,21 @@ export async function getColonyInterestingStats(db = defaultDb) {
         bestWinRate: bmBestWinRate,
         mostMatches: bmMostMatches,
       },
+      position: {
+        matches: sportBreakdown.position,
+        topWinner: posTopWinner ? { player: posTopWinner.player, wins: posTopWinner.sports.position.firstPlace } : null,
+        mostPoints: posMostPoints ? { player: posMostPoints.player, points: posMostPoints.sports.position.points } : null,
+        mostPodiums: posMostPodiums ? { player: posMostPodiums.player, podiums: posMostPodiums.sports.position.podiums } : null,
+      },
+    },
+    positionStats: {
+      matches: sportBreakdown.position,
+      leader: posMostPoints ? { player: posMostPoints.player, points: posMostPoints.sports.position.points } : null,
+      topWinner: posTopWinner ? { player: posTopWinner.player, firstPlaceCount: posTopWinner.sports.position.firstPlace } : null,
+      mostPodiums: posMostPodiums ? { player: posMostPodiums.player, podiumCount: posMostPodiums.sports.position.podiums } : null,
+      insight: posMostPoints && posMostPoints.sports.position.points > 0
+        ? `${posMostPoints.player.name} tops the Position Match rankings with ${posMostPoints.sports.position.points} points 🏅`
+        : 'No position matches played yet.',
     },
   };
 }

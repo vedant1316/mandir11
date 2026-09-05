@@ -1,5 +1,6 @@
 import { db as defaultDb } from '../db/db';
 import { BackupValidationError } from './errors';
+import { exportTextFile } from '../services/fileExportService';
 
 export const CURRENT_BACKUP_VERSION = 1;
 export const BACKUP_FORMAT_IDENTIFIER = 'mandir11_backup';
@@ -301,28 +302,22 @@ export async function getDatabaseStats(db = defaultDb) {
 }
 
 /**
- * Programmatically downloads the backup file in the browser
+ * Programmatically downloads or exports the backup file across web and Android
  */
 export async function downloadBackupFile(db = defaultDb) {
   const backup = await exportBackup(db);
   const jsonStr = JSON.stringify(backup, null, 2);
-  const blob = new Blob([jsonStr], { type: 'application/json' });
 
   const now = new Date();
   const dateStr = now.toISOString().slice(0, 10);
   const timeStr = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
   const filename = `mandir11_backup_${dateStr}_${timeStr}.json`;
 
-  if (typeof document !== 'undefined') {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
+  await exportTextFile({
+    filename,
+    content: jsonStr,
+    mimeType: 'application/json',
+  });
 
   return { filename, backup };
 }

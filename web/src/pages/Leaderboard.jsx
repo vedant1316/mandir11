@@ -8,6 +8,7 @@ const SPORT_TABS = [
   { id: 'cricket', label: '🏏 Cricket' },
   { id: 'volleyball', label: '🏐 Volleyball' },
   { id: 'badminton', label: '🏸 Badminton' },
+  { id: 'position', label: '🏅 Position Match' },
 ];
 
 export default function Leaderboard() {
@@ -35,6 +36,13 @@ export default function Leaderboard() {
 
   const sortedRankings = (data?.rankings ? [...data.rankings] : [])
     .sort((a, b) => {
+      if (sport === 'position') {
+        if ((b.rankingPoints || 0) !== (a.rankingPoints || 0)) return (b.rankingPoints || 0) - (a.rankingPoints || 0);
+        if ((b.firstPlaceCount || 0) !== (a.firstPlaceCount || 0)) return (b.firstPlaceCount || 0) - (a.firstPlaceCount || 0);
+        if ((b.secondPlaceCount || 0) !== (a.secondPlaceCount || 0)) return (b.secondPlaceCount || 0) - (a.secondPlaceCount || 0);
+        if ((b.thirdPlaceCount || 0) !== (a.thirdPlaceCount || 0)) return (b.thirdPlaceCount || 0) - (a.thirdPlaceCount || 0);
+        return (b.matches || 0) - (a.matches || 0);
+      }
       if (b.rankingPoints !== a.rankingPoints) return b.rankingPoints - a.rankingPoints;
       if (b.wins !== a.wins) return b.wins - a.wins;
       if ((b.wickets || 0) !== (a.wickets || 0)) return (b.wickets || 0) - (a.wickets || 0);
@@ -61,14 +69,24 @@ export default function Leaderboard() {
           </div>
 
           {/* Config rules explanation badge */}
-          <div className="card p-2.5 px-3 bg-surface-800 border-surface-600 text-[11px] text-gray-400 self-start sm:self-auto">
-            <span className="text-white font-bold">Scoring: </span>
-            Win: <span className="text-emerald-400 font-bold">+10</span> ·
-            Loss: <span className="text-gray-300 font-bold">+2</span> ·
-            Tie: <span className="text-amber-400 font-bold">+5</span> ·
-            Run: <span className="text-brand-300 font-bold">+1</span> ·
-            Wicket: <span className="text-purple-300 font-bold">+5 pts</span>
-          </div>
+          {sport === 'position' ? (
+            <div className="card p-2.5 px-3 bg-surface-800 border-surface-600 text-[11px] text-gray-400 self-start sm:self-auto">
+              <span className="text-white font-bold">Position Scoring: </span>
+              1st: <span className="text-amber-400 font-bold">+3 pts</span> ·
+              2nd: <span className="text-gray-300 font-bold">+2 pts</span> ·
+              3rd: <span className="text-amber-600 font-bold">+1 pt</span> ·
+              4th+: <span className="text-gray-400 font-bold">0 pts</span>
+            </div>
+          ) : (
+            <div className="card p-2.5 px-3 bg-surface-800 border-surface-600 text-[11px] text-gray-400 self-start sm:self-auto">
+              <span className="text-white font-bold">Scoring: </span>
+              Win: <span className="text-emerald-400 font-bold">+10</span> ·
+              Loss: <span className="text-gray-300 font-bold">+2</span> ·
+              Tie: <span className="text-amber-400 font-bold">+5</span> ·
+              Run: <span className="text-brand-300 font-bold">+1</span> ·
+              Wicket: <span className="text-purple-300 font-bold">+5 pts</span>
+            </div>
+          )}
         </div>
 
         {/* Sport Filter Tabs */}
@@ -112,6 +130,7 @@ export default function Leaderboard() {
                     badge="👑 #1"
                     color="border-amber-400/40 bg-gradient-to-b from-amber-400/15 to-surface-800 ring-1 ring-amber-400/30"
                     item={sortedRankings[0]}
+                    sport={sport}
                     featured
                   />
                 )}
@@ -122,6 +141,7 @@ export default function Leaderboard() {
                     badge="🥈 #2"
                     color="border-gray-400/30 bg-gradient-to-b from-gray-400/10 to-surface-800"
                     item={sortedRankings[1]}
+                    sport={sport}
                   />
                 )}
 
@@ -131,6 +151,7 @@ export default function Leaderboard() {
                     badge="🥉 #3"
                     color="border-amber-700/30 bg-gradient-to-b from-amber-700/10 to-surface-800"
                     item={sortedRankings[2]}
+                    sport={sport}
                   />
                 )}
               </div>
@@ -153,10 +174,21 @@ export default function Leaderboard() {
                       <th className="pb-3 font-semibold">Player</th>
                       <th className="pb-3 font-semibold text-right">Points</th>
                       <th className="pb-3 font-semibold text-right">Matches</th>
-                      <th className="pb-3 font-semibold text-right">Wins</th>
-                      <th className="pb-3 font-semibold text-right">Losses</th>
-                      <th className="pb-3 font-semibold text-right">Runs</th>
-                      <th className="pb-3 font-semibold text-right">Wickets</th>
+                      {sport === 'position' ? (
+                        <>
+                          <th className="pb-3 font-semibold text-right">🥇 1st</th>
+                          <th className="pb-3 font-semibold text-right">🥈 2nd</th>
+                          <th className="pb-3 font-semibold text-right">🥉 3rd</th>
+                          <th className="pb-3 font-semibold text-right">Podiums</th>
+                        </>
+                      ) : (
+                        <>
+                          <th className="pb-3 font-semibold text-right">Wins</th>
+                          <th className="pb-3 font-semibold text-right">Losses</th>
+                          <th className="pb-3 font-semibold text-right">Runs</th>
+                          <th className="pb-3 font-semibold text-right">Wickets</th>
+                        </>
+                      )}
                       <th className="pb-3 font-semibold text-right">Win %</th>
                       <th className="pb-3 font-semibold text-right">Streak</th>
                     </tr>
@@ -193,14 +225,25 @@ export default function Leaderboard() {
                           {row.rankingPoints}
                         </td>
                         <td className="py-3.5 text-right text-gray-400 font-medium">{row.matches}</td>
-                        <td className="py-3.5 text-right text-emerald-400 font-bold">{row.wins}</td>
-                        <td className="py-3.5 text-right text-red-400 font-semibold">{row.losses}</td>
-                        <td className="py-3.5 text-right font-bold text-amber-300">
-                          {sport === 'volleyball' || sport === 'badminton' ? '—' : row.runs || 0}
-                        </td>
-                        <td className="py-3.5 text-right font-bold text-purple-300">
-                          {sport === 'volleyball' || sport === 'badminton' ? '—' : row.wickets || 0}
-                        </td>
+                        {sport === 'position' ? (
+                          <>
+                            <td className="py-3.5 text-right text-amber-400 font-bold">{row.firstPlaceCount ?? row.wins ?? 0}</td>
+                            <td className="py-3.5 text-right text-gray-300 font-semibold">{row.secondPlaceCount ?? 0}</td>
+                            <td className="py-3.5 text-right text-amber-600 font-semibold">{row.thirdPlaceCount ?? 0}</td>
+                            <td className="py-3.5 text-right text-purple-300 font-bold">{row.podiumCount ?? ((row.firstPlaceCount || 0) + (row.secondPlaceCount || 0) + (row.thirdPlaceCount || 0))}</td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="py-3.5 text-right text-emerald-400 font-bold">{row.wins}</td>
+                            <td className="py-3.5 text-right text-red-400 font-semibold">{row.losses}</td>
+                            <td className="py-3.5 text-right font-bold text-amber-300">
+                              {sport === 'volleyball' || sport === 'badminton' ? '—' : row.runs || 0}
+                            </td>
+                            <td className="py-3.5 text-right font-bold text-purple-300">
+                              {sport === 'volleyball' || sport === 'badminton' ? '—' : row.wickets || 0}
+                            </td>
+                          </>
+                        )}
                         <td className="py-3.5 text-right font-semibold text-white">
                           {row.winPercentage}%
                         </td>
@@ -226,7 +269,7 @@ export default function Leaderboard() {
   );
 }
 
-function PodiumCard({ badge, color, item, featured }) {
+function PodiumCard({ badge, color, item, sport, featured }) {
   return (
     <div
       className={`card p-5 text-center flex flex-col justify-between transition-transform duration-200 hover:-translate-y-1 ${color} ${
@@ -249,10 +292,18 @@ function PodiumCard({ badge, color, item, featured }) {
         <p className="text-[11px] text-gray-400 mt-1">
           <span className="text-emerald-400 font-bold">{item.wins}W</span> · {item.losses}L · {item.winPercentage}% Win
         </p>
-        <div className="flex justify-center gap-3 text-[11px] text-gray-400 mt-1">
-          <span>🏏 <span className="text-amber-300 font-semibold">{item.runs || 0}</span> Runs</span>
-          <span>🎯 <span className="text-purple-300 font-semibold">{item.wickets || 0}</span> Wkts</span>
-        </div>
+        {sport === 'position' ? (
+          <div className="flex justify-center gap-2 text-[11px] text-gray-400 mt-1">
+            <span>🥇 <span className="text-amber-300 font-semibold">{item.firstPlaceCount ?? item.wins ?? 0}</span></span>
+            <span>🥈 <span className="text-gray-300 font-semibold">{item.secondPlaceCount ?? 0}</span></span>
+            <span>🥉 <span className="text-amber-600 font-semibold">{item.thirdPlaceCount ?? 0}</span></span>
+          </div>
+        ) : (
+          <div className="flex justify-center gap-3 text-[11px] text-gray-400 mt-1">
+            <span>🏏 <span className="text-amber-300 font-semibold">{item.runs || 0}</span> Runs</span>
+            <span>🎯 <span className="text-purple-300 font-semibold">{item.wickets || 0}</span> Wkts</span>
+          </div>
+        )}
       </div>
 
       <div className="mt-4 pt-3 border-t border-surface-600/40 flex items-center justify-between text-xs">

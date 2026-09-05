@@ -6,6 +6,14 @@
     "run_weight": 1,
     "wicket_weight": 5
   },
+  "position_match": {
+    "points": {
+      "1": 3,
+      "2": 2,
+      "3": 1
+    },
+    "default_points": 0
+  },
   "streak_reset_on": "loss",
   "cricket_stats": {
     "qualifying_innings_for_average": 1,

@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { matchesApi } from '../services/api';
 import MatchCard from '../components/MatchCard';
 import { LoadingSpinner, EmptyState, ErrorState } from '../components/ui';
 
-const SPORTS = ['cricket', 'volleyball', 'badminton'];
+const SPORTS = [
+  { id: 'cricket', label: 'Cricket' },
+  { id: 'volleyball', label: 'Volleyball' },
+  { id: 'badminton', label: 'Badminton' },
+  { id: 'position', label: 'Position Match' },
+];
 const STATUSES = ['upcoming', 'live', 'completed', 'abandoned'];
 
 export default function MatchHistory() {
@@ -37,7 +42,7 @@ export default function MatchHistory() {
     setSearchParams(nextParams, { replace: true });
   };
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -52,9 +57,9 @@ export default function MatchHistory() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, sportFilter, statusFilter]);
 
-  useEffect(() => { load(); }, [sportFilter, statusFilter, page]);
+  useEffect(() => { load(); }, [load]);
 
   return (
     <div className="page">
@@ -78,7 +83,7 @@ export default function MatchHistory() {
           >
             <option value="">All sports</option>
             {SPORTS.map((s) => (
-              <option key={s} value={s} className="capitalize">{s}</option>
+              <option key={s.id} value={s.id}>{s.label}</option>
             ))}
           </select>
 

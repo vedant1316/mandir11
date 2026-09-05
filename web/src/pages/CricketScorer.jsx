@@ -303,13 +303,19 @@ export default function CricketScorer() {
     });
   };
 
-  const handleDownloadScoreboard = () => {
+  const handleDownloadScoreboard = async () => {
     if (!matchScorecard?.match) return;
-    downloadScoreboardImage({
-      match: matchScorecard.match,
-      scorecard: matchScorecard,
-      allPlayers,
-    });
+    try {
+      showFlash('Generating and saving scorecard…');
+      const res = await downloadScoreboardImage({
+        match: matchScorecard.match,
+        scorecard: matchScorecard,
+        allPlayers,
+      });
+      showFlash(`✓ Scorecard saved successfully (${res?.filename || 'scorecard.png'})`);
+    } catch (err) {
+      setError(err?.message || 'Unable to export scorecard. Please try again.');
+    }
   };
 
   const handleUndo = async () => {

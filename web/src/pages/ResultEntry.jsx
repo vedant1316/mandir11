@@ -84,7 +84,7 @@ export default function ResultEntry() {
     }
   };
 
-  const SPORT_EMOJI = { volleyball: '🏐', badminton: '🏸', cricket: '🏏' };
+  const SPORT_EMOJI = { volleyball: '🏐', badminton: '🏸', cricket: '🏏', position: '🏅' };
 
   return (
     <div className="page">

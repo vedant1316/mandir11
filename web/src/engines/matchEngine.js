@@ -7,6 +7,7 @@ import {
   TeamValidationError,
   ResultValidationError,
 } from './errors';
+import { assignRankingPoints } from './rankingPointEngine';
 
 export {
   MatchEngineError,
@@ -17,7 +18,7 @@ export {
   ResultValidationError,
 };
 
-const VALID_SPORTS = ['cricket', 'volleyball', 'badminton'];
+const VALID_SPORTS = ['cricket', 'volleyball', 'badminton', 'position'];
 
 const VALID_TRANSITIONS = {
   upcoming: ['live', 'abandoned'],
@@ -70,11 +71,28 @@ async function hydrateMatch(matchRecord, db = defaultDb) {
   );
 
   const result = await db.match_results.where('match_id').equals(matchRecord.id).first();
+  let hydratedRankings = null;
+  if (result?.rankings && Array.isArray(result.rankings)) {
+    hydratedRankings = await Promise.all(
+      result.rankings.map(async (r) => {
+        const player = await db.players.get(r.player_id);
+        return {
+          ...r,
+          player: player || { id: r.player_id, name: 'Player' },
+        };
+      })
+    );
+  }
 
   return {
     ...matchRecord,
     teams: hydratedTeams,
-    result: result || null,
+    result: result
+      ? {
+          ...result,
+          hydratedRankings: hydratedRankings || result.rankings,
+        }
+      : null,
   };
 }
 
@@ -275,6 +293,32 @@ export async function enterResult(matchId, data, db = defaultDb) {
     );
   }
 
+  if (matchRecord.sport === 'position') {
+    if (!data.rankings || !Array.isArray(data.rankings) || data.rankings.length < 2) {
+      throw new ResultValidationError('Position match result must include rankings for at least 2 participants.');
+    }
+    const decoratedRankings = assignRankingPoints(data.rankings);
+    decoratedRankings.sort((a, b) => a.position - b.position);
+    const winnerPlayerId = decoratedRankings.find((r) => r.position === 1)?.player_id || null;
+
+    const existingResult = await db.match_results.where('match_id').equals(matchId).first();
+    if (existingResult) {
+      await db.match_results.update(existingResult.id, {
+        winner_player_id: winnerPlayerId,
+        rankings: decoratedRankings,
+      });
+    } else {
+      await db.match_results.add({
+        id: generateId(),
+        match_id: matchId,
+        winning_team_id: null,
+        winner_player_id: winnerPlayerId,
+        rankings: decoratedRankings,
+      });
+    }
+    return getMatch(matchId, db);
+  }
+
   const teams = await db.teams.where('match_id').equals(matchId).toArray();
   const teamIds = new Set(teams.map((t) => t.id));
 
@@ -313,6 +357,82 @@ export async function enterResult(matchId, data, db = defaultDb) {
   }
 
   return getMatch(matchId, db);
+}
+
+/**
+ * Creates and immediately completes a Position Match with participant rankings
+ */
+export async function createPositionMatch(data, db = defaultDb) {
+  if (!data?.rankings || !Array.isArray(data.rankings) || data.rankings.length < 2) {
+    throw new ResultValidationError('Position match must have at least 2 ranked participants.');
+  }
+
+  const assignedPlayerIds = data.rankings.map((r) => r.player_id);
+  const assignedPositions = data.rankings.map((r) => Number(r.position));
+
+  // Check unique players
+  const uniquePlayers = new Set(assignedPlayerIds);
+  if (uniquePlayers.size !== assignedPlayerIds.length) {
+    throw new ResultValidationError('Cannot assign the same player to multiple positions.');
+  }
+
+  // Check unique positions 1..N
+  const expectedPositions = Array.from({ length: data.rankings.length }, (_, i) => i + 1);
+  const positionSet = new Set(assignedPositions);
+  for (const exp of expectedPositions) {
+    if (!positionSet.has(exp)) {
+      throw new ResultValidationError(`All positions from 1st through ${data.rankings.length}th must be assigned.`);
+    }
+  }
+
+  // Validate all players exist in db
+  for (const pid of uniquePlayers) {
+    const player = await db.players.get(pid);
+    if (!player) {
+      throw new PlayerNotFoundError(`Player '${pid}' not found.`);
+    }
+  }
+
+  // Decorate rankings with ranking points from centralized engine
+  const decoratedRankings = assignRankingPoints(data.rankings);
+  decoratedRankings.sort((a, b) => a.position - b.position);
+
+  const matchId = generateId();
+  const now = new Date().toISOString();
+  const dateStr = data.match_date || now.split('T')[0];
+
+  const firstPlace = decoratedRankings.find((r) => r.position === 1);
+  const winnerPlayerId = firstPlace?.player_id || null;
+
+  const matchRecord = {
+    id: matchId,
+    sport: 'position',
+    cricket_format: null,
+    status: 'completed',
+    date: dateStr,
+    tournament_id: data.tournament_id || null,
+    fixture_id: data.fixture_id || null,
+    end_reason: 'completed',
+    player_of_match_id: null,
+    created_at: now,
+  };
+
+  const resultRecord = {
+    id: generateId(),
+    match_id: matchId,
+    winning_team_id: null,
+    winner_player_id: winnerPlayerId,
+    rankings: decoratedRankings,
+    team_a_score: null,
+    team_b_score: null,
+  };
+
+  await db.transaction('rw', [db.matches, db.match_results], async () => {
+    await db.matches.add(matchRecord);
+    await db.match_results.add(resultRecord);
+  });
+
+  return hydrateMatch(matchRecord, db);
 }
 
 export async function calculateMatchMvp(matchId, db = defaultDb) {

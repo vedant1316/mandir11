@@ -4,7 +4,7 @@ import { matchesApi, playersApi, cricketApi, ledgerApi } from '../services/api';
 import { LoadingSpinner, ErrorState, ConfirmDialog } from '../components/ui';
 import { downloadScoreboardImage } from '../services/scoreboardGenerator';
 
-const SPORT_EMOJI = { cricket: '🏏', volleyball: '🏐', badminton: '🏸' };
+const SPORT_EMOJI = { cricket: '🏏', volleyball: '🏐', badminton: '🏸', position: '🏅' };
 const STATUS_CLASS = {
   upcoming: 'status-upcoming',
   live: 'status-live',
@@ -37,6 +37,8 @@ export default function MatchDetail() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [scorecardTab, setScorecardTab] = useState(1);
+  const [downloadingScorecard, setDownloadingScorecard] = useState(false);
+  const [scorecardNotice, setScorecardNotice] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +77,18 @@ export default function MatchDetail() {
       </div>
     </div>
   );
+
+  const isPositionMatch = match.sport === 'position';
+  const positionRankings = (match.result?.hydratedRankings || match.result?.rankings || []).map((r) => {
+    const playerObj = r.player || allPlayers.find((p) => p.id === r.player_id);
+    return {
+      ...r,
+      player: playerObj || { id: r.player_id, name: 'Player' },
+    };
+  }).sort((a, b) => (a.position || 0) - (b.position || 0));
+
+  const positionWinner = positionRankings.find((r) => r.position === 1)?.player
+    || allPlayers.find((p) => p.id === match.result?.winner_player_id);
 
   const teamA = match.teams?.find((t) => t.label === 'Team A');
   const teamB = match.teams?.find((t) => t.label === 'Team B');
@@ -131,6 +145,18 @@ export default function MatchDetail() {
   };
 
   const handlePlayAgain = () => {
+    if (match.sport === 'position') {
+      const participantIds = positionRankings.map((r) => r.player_id);
+      navigate('/matches/new', {
+        state: {
+          playAgain: true,
+          sport: 'position',
+          participants: participantIds,
+        },
+      });
+      return;
+    }
+
     const teamAPlayerIds = teamA?.players?.map((p) => p.player_id) || [];
     const teamBPlayerIds = teamB?.players?.map((p) => p.player_id) || [];
 
@@ -151,13 +177,28 @@ export default function MatchDetail() {
     });
   };
 
-  const handleDownloadScoreboard = () => {
-    downloadScoreboardImage({
-      match,
-      scorecard: cricketScorecard,
-      settlement: ledgerSettlement,
-      allPlayers,
-    });
+  const handleDownloadScoreboard = async () => {
+    setDownloadingScorecard(true);
+    setScorecardNotice(null);
+    try {
+      const res = await downloadScoreboardImage({
+        match,
+        scorecard: cricketScorecard,
+        settlement: ledgerSettlement,
+        allPlayers,
+      });
+      setScorecardNotice({
+        type: 'success',
+        message: `Scorecard saved successfully (${res?.filename || 'scorecard.png'})`,
+      });
+    } catch (err) {
+      setScorecardNotice({
+        type: 'error',
+        message: err?.message || 'Unable to export scorecard. Please try again.',
+      });
+    } finally {
+      setDownloadingScorecard(false);
+    }
   };
 
   const selectedInnScorecard = cricketScorecard?.innings.find(
@@ -200,7 +241,17 @@ export default function MatchDetail() {
           </div>
 
           {/* Winner banner */}
-          {winner && (
+          {isPositionMatch ? (
+            <div id="winner-banner" className="mb-4 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-3">
+              <span className="text-2xl">🏆</span>
+              <div>
+                <p className="text-emerald-300 font-bold">
+                  {positionWinner ? `${positionWinner.name} won (1st Place)!` : 'Position Match Completed'}
+                </p>
+                <p className="text-sm text-gray-400">Position Match · Ranking Points Awarded</p>
+              </div>
+            </div>
+          ) : winner ? (
             <div id="winner-banner" className="mb-4 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-3">
               <span className="text-2xl">🏆</span>
               <div>
@@ -218,7 +269,7 @@ export default function MatchDetail() {
                 )}
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Player of Match (Cricket only) */}
           {match.sport === 'cricket' && pomPlayerObj && (
@@ -239,31 +290,92 @@ export default function MatchDetail() {
           )}
         </div>
 
-        {/* Teams Overview */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <TeamDetailCard
-            id="team-a-detail"
-            team={teamA}
-            result={match.result}
-            isWinner={winner?.label === 'Team A'}
-            scoreKey="team_a_score"
-            sport={match.sport}
-            cricketInnings={cricketScorecard?.innings.find((i) => i.battingTeam?.label === 'Team A')}
-            allCricketInnings={cricketScorecard?.innings.filter((i) => i.battingTeam?.id === teamA?.id)}
-            isTestMatch={match.cricket_format === 'test' || match.format === 'test'}
-          />
-          <TeamDetailCard
-            id="team-b-detail"
-            team={teamB}
-            result={match.result}
-            isWinner={winner?.label === 'Team B'}
-            scoreKey="team_b_score"
-            sport={match.sport}
-            cricketInnings={cricketScorecard?.innings.find((i) => i.battingTeam?.label === 'Team B')}
-            allCricketInnings={cricketScorecard?.innings.filter((i) => i.battingTeam?.id === teamB?.id)}
-            isTestMatch={match.cricket_format === 'test' || match.format === 'test'}
-          />
-        </div>
+        {/* Teams Overview or Position Placements */}
+        {isPositionMatch ? (
+          <div id="position-match-placements" className="card p-5 mb-6 space-y-4 border-surface-600 bg-surface-800">
+            <div className="flex items-center justify-between pb-3 border-b border-surface-600/50">
+              <h3 className="section-title text-base flex items-center gap-2">
+                <span>🏅</span> Final Positions & Ranking Points
+              </h3>
+              <span className="badge-blue text-xs font-bold">
+                {positionRankings.length} Participants
+              </span>
+            </div>
+
+            <div className="space-y-2">
+              {positionRankings.map((r) => (
+                <div
+                  key={r.player_id}
+                  className={`p-3.5 rounded-xl border flex items-center justify-between transition-all ${
+                    r.position === 1
+                      ? 'bg-amber-500/15 border-amber-500/40 text-white'
+                      : r.position === 2
+                      ? 'bg-surface-700/70 border-surface-600 text-gray-200'
+                      : r.position === 3
+                      ? 'bg-orange-500/10 border-orange-500/30 text-gray-300'
+                      : 'bg-surface-700/30 border-surface-700 text-gray-400'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">
+                      {r.position === 1 ? '🥇' : r.position === 2 ? '🥈' : r.position === 3 ? '🥉' : `${r.position}th`}
+                    </span>
+                    <div>
+                      <Link
+                        to={`/players/${r.player?.id || r.player_id}`}
+                        className="font-bold text-white hover:text-brand-300 transition-colors"
+                      >
+                        {r.player?.name || 'Player'}
+                      </Link>
+                      <span className="text-xs text-gray-400 ml-2 font-medium">
+                        {r.position === 1 ? '1st Place' : r.position === 2 ? '2nd Place' : r.position === 3 ? '3rd Place' : `${r.position}th Place`}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                      r.points > 0
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-surface-700 text-gray-400 border border-surface-600'
+                    }`}>
+                      +{r.points} pts
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="p-3 rounded-xl bg-surface-700/30 border border-surface-600/40 text-xs text-gray-400 flex items-center justify-between">
+              <span>Points scale: 1st: 3 pts · 2nd: 2 pts · 3rd: 1 pt · 4th+: 0 pts</span>
+              <span className="text-brand-300 font-bold">Mandir 11 Official Rules</span>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <TeamDetailCard
+              id="team-a-detail"
+              team={teamA}
+              result={match.result}
+              isWinner={winner?.label === 'Team A'}
+              scoreKey="team_a_score"
+              sport={match.sport}
+              cricketInnings={cricketScorecard?.innings.find((i) => i.battingTeam?.label === 'Team A')}
+              allCricketInnings={cricketScorecard?.innings.filter((i) => i.battingTeam?.id === teamA?.id)}
+              isTestMatch={match.cricket_format === 'test' || match.format === 'test'}
+            />
+            <TeamDetailCard
+              id="team-b-detail"
+              team={teamB}
+              result={match.result}
+              isWinner={winner?.label === 'Team B'}
+              scoreKey="team_b_score"
+              sport={match.sport}
+              cricketInnings={cricketScorecard?.innings.find((i) => i.battingTeam?.label === 'Team B')}
+              allCricketInnings={cricketScorecard?.innings.filter((i) => i.battingTeam?.id === teamB?.id)}
+              isTestMatch={match.cricket_format === 'test' || match.format === 'test'}
+            />
+          </div>
+        )}
 
         {/* ── Money Ledger & Settlement Card ────────────────────── */}
         {ledgerSettlement && ledgerSettlement.hasStakes && (
@@ -510,23 +622,40 @@ export default function MatchDetail() {
         <div className="space-y-4">
           {/* Completed Match Actions: Download Scoreboard & Play Again */}
           {match.status === 'completed' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button
-                id="btn-download-scoreboard"
-                type="button"
-                onClick={handleDownloadScoreboard}
-                className="btn-secondary btn w-full flex items-center justify-center gap-2 py-3"
-              >
-                <span>📥</span> Download Scoreboard
-              </button>
-              <button
-                id="btn-play-again"
-                type="button"
-                onClick={handlePlayAgain}
-                className="btn-primary btn w-full flex items-center justify-center gap-2 py-3"
-              >
-                <span>🔄</span> Play Again
-              </button>
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button
+                  id="btn-download-scoreboard"
+                  type="button"
+                  disabled={downloadingScorecard}
+                  onClick={handleDownloadScoreboard}
+                  className="btn-secondary btn w-full flex items-center justify-center gap-2 py-3"
+                >
+                  <span>📥</span> {downloadingScorecard ? 'Saving Scorecard…' : 'Download Scoreboard'}
+                </button>
+                <button
+                  id="btn-play-again"
+                  type="button"
+                  onClick={handlePlayAgain}
+                  className="btn-primary btn w-full flex items-center justify-center gap-2 py-3"
+                >
+                  <span>🔄</span> Play Again
+                </button>
+              </div>
+
+              {scorecardNotice && (
+                <div
+                  id="scorecard-notice"
+                  className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                    scorecardNotice.type === 'success'
+                      ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                      : 'bg-red-500/20 border-red-500/30 text-red-300'
+                  }`}
+                >
+                  <span>{scorecardNotice.type === 'success' ? '✓' : '❌'}</span>
+                  <span>{scorecardNotice.message}</span>
+                </div>
+              )}
             </div>
           )}
 

@@ -11,6 +11,7 @@ export default function Settings() {
   // Export State
   const [exporting, setExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(null);
+  const [exportError, setExportError] = useState(null);
 
   // Import State
   const [importPreview, setImportPreview] = useState(null);
@@ -44,11 +45,12 @@ export default function Settings() {
   const handleExport = async () => {
     setExporting(true);
     setExportSuccess(null);
+    setExportError(null);
     try {
       const res = await backupApi.download();
-      setExportSuccess(`Backup downloaded successfully: ${res.data.filename}`);
-    } catch {
-      alert('Failed to generate backup.');
+      setExportSuccess(`Backup exported successfully: ${res.data.filename}`);
+    } catch (err) {
+      setExportError(err?.message || 'Unable to export backup. Please try again.');
     } finally {
       setExporting(false);
     }
@@ -195,6 +197,13 @@ export default function Settings() {
             <div className="p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/30 text-xs text-emerald-300 flex items-center gap-2">
               <span>✓</span>
               <span>{exportSuccess}</span>
+            </div>
+          )}
+
+          {exportError && (
+            <div className="p-3 rounded-xl bg-red-500/20 border border-red-500/30 text-xs text-red-300 flex items-center gap-2">
+              <span>❌</span>
+              <span>{exportError}</span>
             </div>
           )}
         </div>

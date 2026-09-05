@@ -61,6 +61,10 @@ export const matchesApi = {
     const data = await matchEngine.createMatch(payload);
     return { data };
   },
+  createPositionMatch: async (data) => {
+    const res = await matchEngine.createPositionMatch(data);
+    return { data: res };
+  },
   createTeams: async (id, teams) => {
     const data = await matchEngine.createTeams(id, { teams });
     return { data };
